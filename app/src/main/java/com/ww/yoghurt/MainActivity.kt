@@ -9,9 +9,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.view.HapticFeedbackConstants
+import android.view.SoundEffectConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -44,6 +47,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -71,9 +75,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 // Global Version Control
-const val APP_VERSION = "1.1.2"
+const val APP_VERSION = "1.2.0"
 
 val appChangelog = mapOf(
+    "v1.2.0" to listOf("Rewrote edit engine to eliminate ClassCastException crashes.", "Added Multi-Variate Trend Chart mapping Acidity, Density, Texture, and Overall.", "Batch names are now editable.", "Version Code bumped to 4."),
     "v1.1.2" to listOf("Restored proper architectural formatting."),
     "v1.1.1" to listOf("Fixed Radar Chart label placement.", "Resolved Edit Save ClassCastException crash.", "Fixed GitHub 302 Redirect APK parsing error.", "Added active API version checking.", "Moved Changelog to overlay dialog."),
     "v1.1.0" to listOf("Updated Gemini Model to v3 Flash.", "Added Historical Auto-Complete.", "Added Sensory Radar Charts & Trendlines.", "Added Batch Edit & Fork features."),
@@ -183,6 +188,7 @@ fun MainScreen() {
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
     val db = Firebase.firestore
+    val view = LocalView.current
 
     var brewSchema by remember { mutableStateOf(defaultBrewSchema) }
     var harvestSchema by remember { mutableStateOf(defaultHarvestSchema) }
@@ -258,6 +264,8 @@ fun MainScreen() {
                 Tab(
                     selected = pagerState.currentPage == index,
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         coroutineScope.launch { pagerState.animateScrollToPage(index) }
                     },
                     icon = { Icon(tabItem.icon, contentDescription = tabItem.title) }
@@ -277,8 +285,6 @@ fun MainScreen() {
                     0 -> DashboardScreen(
                         batches = masterBatches,
                         isLoading = batchesLoading,
-                        brewSchema = brewSchema,
-                        harvestSchema = harvestSchema,
                         onForkBatch = { batch ->
                             forkedBatchName = "Copy of ${batch.batchName}"
                             forkedValues.clear()
@@ -426,14 +432,96 @@ fun SensoryRadarChart(rawData: Map<String, Any>) {
     }
 }
 
+// Multi-Variate Trend Chart mapping all sensory metrics
 @Composable
-fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: List<CustomField>, harvestSchema: List<CustomField>, onForkBatch: (YogurtBatch) -> Unit) {
+fun MultiTrendChart(batches: List<YogurtBatch>) {
+    val validBatches = batches.filter { it.status == "completed" }.reversed()
+    if (validBatches.size < 2) return
+
+    val metrics = listOf(
+        Pair("Overall", MaterialTheme.colorScheme.primary),
+        Pair("Acidity", Color(0xFFEF4444)), // Red
+        Pair("Density", Color(0xFF10B981)), // Green
+        Pair("Texture", Color(0xFFF59E0B))  // Amber
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth().height(260.dp).padding(bottom = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Sensory Trends", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Canvas(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val canvasWidth = size.width; val canvasHeight = size.height
+                val maxScore = 7f; val minScore = 1f
+
+                // Background grid lines
+                val gridSteps = 3
+                for (i in 0..gridSteps) {
+                    val y = canvasHeight * (i.toFloat() / gridSteps)
+                    drawLine(color = Color.Gray.copy(alpha = 0.2f), start = Offset(0f, y), end = Offset(canvasWidth, y), strokeWidth = 1.dp.toPx())
+                }
+
+                val xStep = canvasWidth / (validBatches.size - 1).coerceAtLeast(1)
+
+                // Plot each metric line
+                metrics.forEach { (metricName, color) ->
+                    val path = Path()
+                    var hasStarted = false
+
+                    validBatches.forEachIndexed { index, batch ->
+                        val key = batch.rawData.keys.firstOrNull { it.contains(metricName, ignoreCase = true) } ?: metricName
+                        val score = (batch.rawData[key] as? Number)?.toFloat()
+
+                        if (score != null) {
+                            val x = index * xStep
+                            val normalizedY = 1f - ((score - minScore) / (maxScore - minScore))
+                            val y = normalizedY * canvasHeight
+
+                            if (!hasStarted) {
+                                path.moveTo(x, y)
+                                hasStarted = true
+                            } else {
+                                path.lineTo(x, y)
+                            }
+                            drawCircle(color = color, radius = 4.dp.toPx(), center = Offset(x, y))
+                        }
+                    }
+                    if (hasStarted) {
+                        drawPath(path = path, color = color.copy(alpha = 0.8f), style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+                    }
+                }
+            }
+
+            // Legend
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                metrics.forEach { (name, color) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(name, fontSize = MaterialTheme.typography.labelSmall.fontSize, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch: (YogurtBatch) -> Unit) {
     val context = LocalContext.current
     val db = Firebase.firestore
+    val view = LocalView.current
 
     var selectedBatchForDetails by remember { mutableStateOf<YogurtBatch?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
+
+    // Explicitly track the batch name for editing
+    var editBatchName by remember { mutableStateOf("") }
     val editValues = remember { mutableStateMapOf<String, String>() }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -471,6 +559,7 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
+                    MultiTrendChart(batches)
                 }
 
                 itemsIndexed(batches) { index, batch ->
@@ -479,6 +568,8 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                view.playSoundEffect(SoundEffectConstants.CLICK)
                                 selectedBatchForDetails = batch
                             },
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -548,7 +639,7 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
                 isEditing = false
             },
             title = {
-                Text(if (isEditing) "Edit ${batch.batchName}" else batch.batchName, fontWeight = FontWeight.Bold)
+                Text(if (isEditing) "Edit Batch" else batch.batchName, fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -569,6 +660,17 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
                             }
                         }
                     } else {
+                        // Editable Batch Name
+                        OutlinedTextField(
+                            value = editBatchName,
+                            onValueChange = { editBatchName = it },
+                            label = { Text("Batch Name", fontWeight = FontWeight.Normal) },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                            textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal)
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                         val ignoreKeys = listOf("batchName", "timestamp", "status")
                         batch.rawData.forEach { (key, value) ->
                             if (!ignoreKeys.contains(key)) {
@@ -590,19 +692,20 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
                 if (isEditing) {
                     FeedbackButton(
                         onClick = {
-                            val updatedData = batch.rawData.toMutableMap()
-                            val allFields = brewSchema + harvestSchema
+                            val mapToUpdate = mutableMapOf<String, Any>()
+                            mapToUpdate["batchName"] = editBatchName
 
+                            // Safely cast based ONLY on original data type to prevent crash
                             editValues.forEach { (k, v) ->
-                                val fieldDef = allFields.find { it.name == k }
-                                if (fieldDef?.type == "Number" || fieldDef?.type == "Slider") {
-                                    updatedData[k] = v.toFloatOrNull() ?: 0f
+                                val originalVal = batch.rawData[k]
+                                if (originalVal is Number) {
+                                    mapToUpdate[k] = v.toFloatOrNull() ?: 0f
                                 } else {
-                                    updatedData[k] = v
+                                    mapToUpdate[k] = v
                                 }
                             }
 
-                            db.collection("brews").document(batch.id).update(updatedData).addOnSuccessListener {
+                            db.collection("brews").document(batch.id).update(mapToUpdate).addOnSuccessListener {
                                 Toast.makeText(context, "Batch Updated", Toast.LENGTH_SHORT).show()
                                 selectedBatchForDetails = null
                                 isEditing = false
@@ -624,6 +727,7 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
                     if (!isEditing) {
                         FeedbackIconButton(
                             onClick = {
+                                editBatchName = batch.batchName
                                 editValues.clear()
                                 val ignoreKeys = listOf("batchName", "timestamp", "status")
                                 batch.rawData.forEach { (k, v) ->
@@ -875,6 +979,7 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
 
     val context = LocalContext.current
     val db = Firebase.firestore
+    val view = LocalView.current
 
     LaunchedEffect(Unit) {
         db.collection("brews").whereEqualTo("status", "brewing").get().addOnSuccessListener { snapshot ->
@@ -924,7 +1029,13 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
                             modifier = Modifier
                                 .menuAnchor()
-                                .fillMaxWidth(),
+                                .fillMaxWidth()
+                                .clickable {
+                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                    view.playSoundEffect(SoundEffectConstants.CLICK)
+                                    dropdownExpanded = true
+                                },
+                            enabled = false,
                             textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal),
                             colors = OutlinedTextFieldDefaults.colors(disabledTextColor = MaterialTheme.colorScheme.onSurface)
                         )
@@ -936,6 +1047,8 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                                 DropdownMenuItem(
                                     text = { Text(brew.displayLabel, fontWeight = FontWeight.Normal) },
                                     onClick = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        view.playSoundEffect(SoundEffectConstants.CLICK)
                                         selectedBrew = brew
                                         dropdownExpanded = false
                                     }
@@ -1247,10 +1360,7 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                 FeedbackButton(
                     onClick = {
                         isSaving = true
-                        val configData = hashMapOf(
-                            "brewFields" to editBrewSchema.map { mapOf("name" to it.name, "type" to it.type) },
-                            "harvestFields" to editHarvestSchema.map { mapOf("name" to it.name, "type" to it.type) }
-                        )
+                        val configData = hashMapOf("brewFields" to editBrewSchema.map { mapOf("name" to it.name, "type" to it.type) }, "harvestFields" to editHarvestSchema.map { mapOf("name" to it.name, "type" to it.type) })
                         db.collection("config").document("schema").set(configData).addOnSuccessListener {
                             Toast.makeText(context, "Schema Updated Globally", Toast.LENGTH_SHORT).show()
                             isSaving = false
