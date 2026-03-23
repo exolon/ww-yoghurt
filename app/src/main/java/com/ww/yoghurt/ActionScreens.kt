@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -84,8 +85,6 @@ fun YogurtBrewScreen(
     var batchName by remember { mutableStateOf("") }
     val dynamicTextValues = remember { mutableStateMapOf<String, String>() }
     var isSaving by remember { mutableStateOf(false) }
-
-    // Notification Toggle State
     var enableNotification by remember { mutableStateOf(true) }
 
     val context = LocalContext.current
@@ -93,7 +92,6 @@ fun YogurtBrewScreen(
     val coroutineScope = rememberCoroutineScope()
     val view = LocalView.current
 
-    // Permission Launcher for Android 13+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         if (!isGranted) {
             enableNotification = false
@@ -117,20 +115,19 @@ fun YogurtBrewScreen(
         Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 OutlinedTextField(
-                    value = batchName, onValueChange = { batchName = it; onClearFork() }, label = { Text("Batch Name (e.g., Batch #1)", fontWeight = FontWeight.Normal) },
+                    value = batchName, onValueChange = { batchName = it }, label = { Text("Batch Name (e.g., Batch #1)", fontWeight = FontWeight.Normal) },
                     modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), enabled = !isSaving
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 schema.forEach { field ->
                     AutoCompleteTextField(
-                        value = dynamicTextValues[field.name] ?: "", onValueChange = { dynamicTextValues[field.name] = it; onClearFork() },
+                        value = dynamicTextValues[field.name] ?: "", onValueChange = { dynamicTextValues[field.name] = it },
                         label = field.name, options = historicalData[field.name] ?: emptySet(), isNumber = field.type == "Number"
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Notification Toggle UI
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -180,7 +177,6 @@ fun YogurtBrewScreen(
                                     if (field.type == "Number") {
                                         val num = stringVal.toFloatOrNull() ?: 0f
                                         brewData[field.name] = num
-                                        // Detect if this field represents Fermentation Time
                                         if (field.name.contains("time", ignoreCase = true) || field.name.contains("hours", ignoreCase = true) || field.name.endsWith("(h)")) {
                                             hoursToWait = num
                                         }
@@ -189,7 +185,6 @@ fun YogurtBrewScreen(
                                     }
                                 }
 
-                                // Schedule the Push Notification
                                 if (enableNotification && hoursToWait > 0f) {
                                     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                                     val intent = Intent(context, YogurtAlarmReceiver::class.java).apply {
@@ -242,9 +237,12 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
     var dropdownExpanded by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
+    var isWoodyApproved by remember { mutableStateOf(false) }
+
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     val view = LocalView.current
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         db.collection("brews").whereEqualTo("status", "brewing").get().addOnSuccessListener { snapshot ->
@@ -271,11 +269,11 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                     ExposedDropdownMenuBox(expanded = dropdownExpanded, onExpandedChange = { dropdownExpanded = it }) {
                         OutlinedTextField(
                             value = selectedBrew?.displayLabel ?: "", onValueChange = {}, readOnly = true, label = { Text("Select Target Batch", fontWeight = FontWeight.Normal) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(),
-                            textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), colors = OutlinedTextFieldDefaults.colors(disabledTextColor = MaterialTheme.colorScheme.onSurface)
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth().clickable { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); dropdownExpanded = true },
+                            enabled = false, textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), colors = OutlinedTextFieldDefaults.colors(disabledTextColor = MaterialTheme.colorScheme.onSurface)
                         )
                         ExposedDropdownMenu(expanded = dropdownExpanded, onDismissRequest = { dropdownExpanded = false }) {
-                            pendingBrews.forEach { brew -> DropdownMenuItem(text = { Text(brew.displayLabel, fontWeight = FontWeight.Normal) }, onClick = { selectedBrew = brew; dropdownExpanded = false }) }
+                            pendingBrews.forEach { brew -> DropdownMenuItem(text = { Text(brew.displayLabel, fontWeight = FontWeight.Normal) }, onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); selectedBrew = brew; dropdownExpanded = false }) }
                         }
                     }
                 }
@@ -294,12 +292,31 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Woody's Choice ❤️", fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B))
+                    Switch(
+                        checked = isWoodyApproved,
+                        onCheckedChange = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            isWoodyApproved = it
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFFF59E0B), checkedTrackColor = Color(0xFFF59E0B).copy(alpha = 0.5f))
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
                 FeedbackButton(
                     onClick = {
                         selectedBrew?.let { brew ->
                             isSaving = true
-                            val data = mutableMapOf<String, Any>("status" to "completed")
+                            val data = mutableMapOf<String, Any>("status" to "completed", "woodyApproved" to isWoodyApproved)
                             schema.forEach { field ->
                                 if (field.type == "Slider") data[field.name] = (dynamicSliderValues[field.name] ?: 4f).toInt()
                                 else if (field.type == "Number") data[field.name] = (dynamicTextValues[field.name] ?: "").toFloatOrNull() ?: 0f
@@ -307,7 +324,27 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                             }
                             db.collection("brews").document(brew.id).update(data).addOnSuccessListener {
                                 Toast.makeText(context, "Harvest saved!", Toast.LENGTH_SHORT).show()
-                                dynamicSliderValues.clear(); dynamicTextValues.clear(); pendingBrews = pendingBrews.filter { it.id != brew.id }
+
+                                val apiKey = context.getSharedPreferences("WWPrefs", Context.MODE_PRIVATE).getString("GEMINI_API_KEY", "") ?: ""
+                                if (apiKey.isNotBlank()) {
+                                    db.collection("brews").whereEqualTo("status", "completed").orderBy("timestamp", Query.Direction.DESCENDING).limit(3).get().addOnSuccessListener { recentSnap ->
+                                        val recentData = recentSnap.documents.map { it.data }
+                                        coroutineScope.launch {
+                                            try {
+                                                val prompt = "You are an expert yogurt fermentation AI. Based strictly on the user's last 3 batches: $recentData. Provide a single, short, insightful sentence of advice or observation for their next batch. Keep it under 20 words. No markdown formatting."
+                                                val model = GenerativeModel("gemini-3-flash-preview", apiKey)
+                                                val response = model.generateContent(prompt)
+                                                val text = response.text?.replace("**", "") ?: ""
+                                                if (text.isNotBlank()) {
+                                                    db.collection("config").document("ai_insight").set(mapOf("text" to text, "timestamp" to System.currentTimeMillis()))
+                                                }
+                                            } catch (e: Exception) { /* Silently fail if AI has an issue */ }
+                                        }
+                                    }
+                                }
+
+                                dynamicSliderValues.clear(); dynamicTextValues.clear(); isWoodyApproved = false
+                                pendingBrews = pendingBrews.filter { it.id != brew.id }
                                 selectedBrew = pendingBrews.firstOrNull(); isSaving = false
                             }.addOnFailureListener { isSaving = false }
                         }
@@ -422,6 +459,7 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     val sharedPrefs = context.getSharedPreferences("WWPrefs", Context.MODE_PRIVATE)
+    val view = LocalView.current
 
     var apiKeyInput by remember { mutableStateOf(sharedPrefs.getString("GEMINI_API_KEY", "") ?: "") }
     var isSaving by remember { mutableStateOf(false) }
@@ -430,6 +468,7 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
     val editHarvestSchema = remember(currentHarvestSchema) { mutableStateListOf(*currentHarvestSchema.toTypedArray()) }
     var showAddFieldDialog by remember { mutableStateOf(false) }
     var showChangelogDialog by remember { mutableStateOf(false) }
+    var showManualDialog by remember { mutableStateOf(false) }
     var fieldToAddPhase by remember { mutableStateOf("Brew") }
     var newFieldName by remember { mutableStateOf("") }
     var newFieldType by remember { mutableStateOf("Text") }
@@ -495,11 +534,34 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
+        Button(onClick = { showManualDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("WW Yoghurt User Manual", fontWeight = FontWeight.Bold) }
+        Spacer(modifier = Modifier.height(8.dp))
         Button(onClick = { showChangelogDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("View Full Changelog", fontWeight = FontWeight.Bold) }
         Spacer(modifier = Modifier.height(8.dp))
         Button(onClick = { checkForUpdates(context, coroutineScope) }, modifier = Modifier.fillMaxWidth()) { Text("Download Latest Update", fontWeight = FontWeight.Bold) }
         Spacer(modifier = Modifier.height(32.dp))
         Text("Version v$APP_VERSION", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    if (showManualDialog) {
+        AlertDialog(
+            onDismissRequest = { showManualDialog = false }, title = { Text("User Manual", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Dashboard", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("View active and past batches. Use the toggle icons to switch between Chronological Timeline and Lineage Tree views. Swipe left or right on any batch to delete it (you will have a few seconds to Undo).", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Brewing & Alarms", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Log a new batch. If your schema includes a 'Number' field containing 'time' or 'hours', the app will automatically calculate a live countdown timer and trigger a local Push Notification when fermentation finishes.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Forking", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Tap a completed batch and select the Fork icon to duplicate its parameters. This links their DNA in the Lineage Tree view.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Data Science Charts", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Charts automatically appear when enough data exists. The Trendline requires 2+ batches. The Correlation Scatterplot requires 3+ batches with at least one numeric ingredient variable.", style = MaterialTheme.typography.bodySmall)
+                }
+            }, confirmButton = { Button(onClick = { showManualDialog = false }) { Text("Close", fontWeight = FontWeight.Bold) } }
+        )
     }
 
     if (showChangelogDialog) {
@@ -530,7 +592,14 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                     Row {
                         listOf("Text", "Number", "Slider").forEach { type ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = newFieldType == type, onClick = { newFieldType = type })
+                                RadioButton(
+                                    selected = newFieldType == type,
+                                    onClick = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        view.playSoundEffect(SoundEffectConstants.CLICK)
+                                        newFieldType = type
+                                    }
+                                )
                                 Text(type, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Normal)
                             }
                         }

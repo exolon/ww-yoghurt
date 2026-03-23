@@ -34,7 +34,7 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        createNotificationChannel() // Registering the channel for v1.3
+        createNotificationChannel()
 
         setContent {
             val GreekBlue = Color(0xFF1E40AF)
@@ -161,7 +161,8 @@ fun MainScreen() {
     if (!schemaLoaded) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return }
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        ScrollableTabRow(selectedTabIndex = pagerState.currentPage, containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.primary, edgePadding = 8.dp) {
+        // CHANGED: TabRow instead of ScrollableTabRow for evenly spaced icons
+        TabRow(selectedTabIndex = pagerState.currentPage, containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.primary) {
             tabs.forEachIndexed { index, tabItem ->
                 Tab(
                     selected = pagerState.currentPage == index,
