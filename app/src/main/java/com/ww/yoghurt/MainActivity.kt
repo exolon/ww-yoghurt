@@ -14,7 +14,6 @@ import android.view.SoundEffectConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -75,13 +74,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 // Global Version Control
-const val APP_VERSION = "1.2.0"
+const val APP_VERSION = "1.2.2"
 
 val appChangelog = mapOf(
-    "v1.2.0" to listOf("Rewrote edit engine to eliminate ClassCastException crashes.", "Added Multi-Variate Trend Chart mapping Acidity, Density, Texture, and Overall.", "Batch names are now editable.", "Version Code bumped to 4."),
-    "v1.1.2" to listOf("Restored proper architectural formatting."),
-    "v1.1.1" to listOf("Fixed Radar Chart label placement.", "Resolved Edit Save ClassCastException crash.", "Fixed GitHub 302 Redirect APK parsing error.", "Added active API version checking.", "Moved Changelog to overlay dialog."),
-    "v1.1.0" to listOf("Updated Gemini Model to v3 Flash.", "Added Historical Auto-Complete.", "Added Sensory Radar Charts & Trendlines.", "Added Batch Edit & Fork features."),
+    "v1.2.2" to listOf("Reordered utility functions to prevent compilation truncation."),
+    "v1.2.1" to listOf("Fixed Package Installer 'parsing' error using secure URIs.", "Added Semantic Version comparison.", "Dynamic GitHub Asset fetching."),
+    "v1.2.0" to listOf("Rewrote edit engine to eliminate crashes.", "Added Multi-Variate Trend Chart.", "Batch names are now editable.", "Version Code bumped to 4."),
+    "v1.1.1" to listOf("Fixed Radar Chart label placement.", "Added active API version checking.", "Moved Changelog to overlay dialog."),
+    "v1.1.0" to listOf("Updated Gemini Model to v3 Flash.", "Added Historical Auto-Complete.", "Added Sensory Radar Charts.", "Added Batch Edit & Fork features."),
     "v1.0.0" to listOf("Initial Release: Core Engine.", "Dynamic NoSQL Schema Builder.", "AI Diagnostics integration.", "Data mapping & CSV Export.")
 )
 
@@ -174,6 +174,142 @@ val ForkIcon: ImageVector
             lineTo(14f, 3f); lineTo(16f, 3f); close()
         }
     }.build()
+
+// --- Core Utility Functions (Moved up to prevent truncation) ---
+
+fun exportDataToCsv(context: Context, db: com.google.firebase.firestore.FirebaseFirestore) {
+    Toast.makeText(context, "Compiling CSV Database...", Toast.LENGTH_SHORT).show()
+    db.collection("brews").orderBy("timestamp", Query.Direction.ASCENDING).get()
+        .addOnSuccessListener { snapshot ->
+            if (snapshot.isEmpty) {
+                Toast.makeText(context, "No data to export.", Toast.LENGTH_SHORT).show()
+                return@addOnSuccessListener
+            }
+            try {
+                val docs = snapshot.documents
+                val dynamicKeys = mutableSetOf<String>()
+                val ignoreKeys = setOf("batchName", "timestamp", "status")
+
+                docs.forEach { doc ->
+                    doc.data?.keys?.filter { it !in ignoreKeys }?.let { dynamicKeys.addAll(it) }
+                }
+
+                val sortedKeys = dynamicKeys.sorted()
+                val csv = StringBuilder().append("Date,Batch Name,Status")
+                sortedKeys.forEach { csv.append(",\"$it\"") }
+                csv.append("\n")
+
+                docs.forEach { doc ->
+                    val data = doc.data ?: emptyMap()
+                    val name = (doc.getString("batchName") ?: "Unknown").replace("\"", "\"\"")
+                    val ts = doc.getLong("timestamp") ?: 0L
+                    val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
+                    val status = doc.getString("status") ?: "unknown"
+
+                    csv.append("\"$dateStr\",\"$name\",\"$status\"")
+                    sortedKeys.forEach { key ->
+                        val value = data[key]?.toString() ?: ""
+                        csv.append(",\"${value.replace("\"", "\"\"")}\"")
+                    }
+                    csv.append("\n")
+                }
+
+                val exportFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "WW_Yoghurt_Data.csv")
+                java.io.FileWriter(exportFile).use { it.write(csv.toString()) }
+
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", exportFile)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Export to Google Drive"))
+            } catch (e: Exception) {
+                Toast.makeText(context, "Export Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }.addOnFailureListener {
+            Toast.makeText(context, "Failed to fetch Database.", Toast.LENGTH_SHORT).show()
+        }
+}
+
+fun checkForUpdates(context: Context, coroutineScope: CoroutineScope) {
+    Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
+
+    coroutineScope.launch {
+        try {
+            val response = withContext(Dispatchers.IO) {
+                URL("https://api.github.com/repos/exolon/ww-yoghurt/releases/latest").readText()
+            }
+            val json = JSONObject(response)
+            val latestTag = json.getString("tag_name")
+
+            // Mathematical Semantic Version Check
+            val lParts = latestTag.replace(Regex("[^0-9.]"), "").split(".").map { it.toIntOrNull() ?: 0 }
+            val cParts = APP_VERSION.replace(Regex("[^0-9.]"), "").split(".").map { it.toIntOrNull() ?: 0 }
+            var isNewer = false
+            val maxLen = maxOf(lParts.size, cParts.size)
+            for (i in 0 until maxLen) {
+                val lVal = lParts.getOrElse(i) { 0 }
+                val cVal = cParts.getOrElse(i) { 0 }
+                if (lVal > cVal) { isNewer = true; break }
+                if (lVal < cVal) { isNewer = false; break }
+            }
+
+            if (isNewer) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Downloading $latestTag...", Toast.LENGTH_LONG).show()
+                    val apkName = "ww-yoghurt-update.apk"
+
+                    val githubReleaseUrl = json.getJSONArray("assets").getJSONObject(0).getString("browser_download_url")
+
+                    val request = DownloadManager.Request(Uri.parse(githubReleaseUrl))
+                        .setTitle("WW Yoghurt Update")
+                        .setDescription("Downloading $latestTag...")
+                        .setMimeType("application/vnd.android.package-archive")
+                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+
+                    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                    val downloadId = downloadManager.enqueue(request)
+
+                    val onComplete = object : BroadcastReceiver() {
+                        override fun onReceive(ctxt: Context, intent: Intent) {
+                            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                            if (id == downloadId) {
+                                val uri = downloadManager.getUriForDownloadedFile(id)
+                                if (uri != null) {
+                                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, "application/vnd.android.package-archive")
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    }
+                                    ctxt.startActivity(installIntent)
+                                } else {
+                                    Toast.makeText(ctxt, "Update failed to process. Try again.", Toast.LENGTH_LONG).show()
+                                }
+                                ctxt.unregisterReceiver(this)
+                            }
+                        }
+                    }
+                    val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        context.registerReceiver(onComplete, filter, Context.RECEIVER_EXPORTED)
+                    } else {
+                        context.registerReceiver(onComplete, filter)
+                    }
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "You are on the latest version (v$APP_VERSION).", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Failed to check for updates.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+}
+
+// --- End Core Utility Functions ---
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -285,6 +421,8 @@ fun MainScreen() {
                     0 -> DashboardScreen(
                         batches = masterBatches,
                         isLoading = batchesLoading,
+                        brewSchema = brewSchema,
+                        harvestSchema = harvestSchema,
                         onForkBatch = { batch ->
                             forkedBatchName = "Copy of ${batch.batchName}"
                             forkedValues.clear()
@@ -432,7 +570,6 @@ fun SensoryRadarChart(rawData: Map<String, Any>) {
     }
 }
 
-// Multi-Variate Trend Chart mapping all sensory metrics
 @Composable
 fun MultiTrendChart(batches: List<YogurtBatch>) {
     val validBatches = batches.filter { it.status == "completed" }.reversed()
@@ -440,9 +577,9 @@ fun MultiTrendChart(batches: List<YogurtBatch>) {
 
     val metrics = listOf(
         Pair("Overall", MaterialTheme.colorScheme.primary),
-        Pair("Acidity", Color(0xFFEF4444)), // Red
-        Pair("Density", Color(0xFF10B981)), // Green
-        Pair("Texture", Color(0xFFF59E0B))  // Amber
+        Pair("Acidity", Color(0xFFEF4444)),
+        Pair("Density", Color(0xFF10B981)),
+        Pair("Texture", Color(0xFFF59E0B))
     )
 
     Card(
@@ -458,7 +595,6 @@ fun MultiTrendChart(batches: List<YogurtBatch>) {
                 val canvasWidth = size.width; val canvasHeight = size.height
                 val maxScore = 7f; val minScore = 1f
 
-                // Background grid lines
                 val gridSteps = 3
                 for (i in 0..gridSteps) {
                     val y = canvasHeight * (i.toFloat() / gridSteps)
@@ -467,7 +603,6 @@ fun MultiTrendChart(batches: List<YogurtBatch>) {
 
                 val xStep = canvasWidth / (validBatches.size - 1).coerceAtLeast(1)
 
-                // Plot each metric line
                 metrics.forEach { (metricName, color) ->
                     val path = Path()
                     var hasStarted = false
@@ -496,7 +631,6 @@ fun MultiTrendChart(batches: List<YogurtBatch>) {
                 }
             }
 
-            // Legend
             Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 metrics.forEach { (name, color) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -511,7 +645,13 @@ fun MultiTrendChart(batches: List<YogurtBatch>) {
 }
 
 @Composable
-fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch: (YogurtBatch) -> Unit) {
+fun DashboardScreen(
+    batches: List<YogurtBatch>,
+    isLoading: Boolean,
+    brewSchema: List<CustomField>,
+    harvestSchema: List<CustomField>,
+    onForkBatch: (YogurtBatch) -> Unit
+) {
     val context = LocalContext.current
     val db = Firebase.firestore
     val view = LocalView.current
@@ -520,7 +660,6 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
 
-    // Explicitly track the batch name for editing
     var editBatchName by remember { mutableStateOf("") }
     val editValues = remember { mutableStateMapOf<String, String>() }
 
@@ -538,8 +677,12 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                     modifier = Modifier.size(144.dp).clip(RoundedCornerShape(16.dp))
                 )
             }
-            FeedbackIconButton(
-                onClick = { exportDataToCsv(context, db) },
+            IconButton(
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    view.playSoundEffect(SoundEffectConstants.CLICK)
+                    exportDataToCsv(context, db)
+                },
                 modifier = Modifier.align(Alignment.TopEnd)
             ) {
                 Icon(Icons.Default.Share, contentDescription = "Export to CSV", tint = MaterialTheme.colorScheme.primary)
@@ -660,7 +803,6 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                             }
                         }
                     } else {
-                        // Editable Batch Name
                         OutlinedTextField(
                             value = editBatchName,
                             onValueChange = { editBatchName = it },
@@ -690,15 +832,19 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
             },
             confirmButton = {
                 if (isEditing) {
-                    FeedbackButton(
+                    Button(
                         onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            view.playSoundEffect(SoundEffectConstants.CLICK)
+
                             val mapToUpdate = mutableMapOf<String, Any>()
                             mapToUpdate["batchName"] = editBatchName
 
-                            // Safely cast based ONLY on original data type to prevent crash
+                            val allFields = brewSchema + harvestSchema
+
                             editValues.forEach { (k, v) ->
-                                val originalVal = batch.rawData[k]
-                                if (originalVal is Number) {
+                                val fieldDef = allFields.find { it.name == k }
+                                if (fieldDef?.type == "Number" || fieldDef?.type == "Slider" || batch.rawData[k] is Number) {
                                     mapToUpdate[k] = v.toFloatOrNull() ?: 0f
                                 } else {
                                     mapToUpdate[k] = v
@@ -715,7 +861,7 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                         Text("Save", fontWeight = FontWeight.Bold)
                     }
                 } else {
-                    FeedbackButton(
+                    Button(
                         onClick = { selectedBatchForDetails = null }
                     ) {
                         Text("Close", fontWeight = FontWeight.Normal)
@@ -725,8 +871,10 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
             dismissButton = {
                 Row {
                     if (!isEditing) {
-                        FeedbackIconButton(
+                        IconButton(
                             onClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                view.playSoundEffect(SoundEffectConstants.CLICK)
                                 editBatchName = batch.batchName
                                 editValues.clear()
                                 val ignoreKeys = listOf("batchName", "timestamp", "status")
@@ -739,8 +887,10 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                             Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
                         }
 
-                        FeedbackIconButton(
+                        IconButton(
                             onClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                view.playSoundEffect(SoundEffectConstants.CLICK)
                                 onForkBatch(batch)
                                 selectedBatchForDetails = null
                             }
@@ -748,13 +898,13 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                             Icon(ForkIcon, contentDescription = "Fork Batch", tint = MaterialTheme.colorScheme.primary)
                         }
                     } else {
-                        FeedbackIconButton(
+                        IconButton(
                             onClick = { isEditing = false }
                         ) {
                             Icon(Icons.Default.Close, contentDescription = "Cancel Edit", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    FeedbackIconButton(
+                    IconButton(
                         onClick = { showDeleteConfirm = true }
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
@@ -770,9 +920,11 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
             title = { Text("Delete Batch?", fontWeight = FontWeight.Bold) },
             text = { Text("This action cannot be undone.", fontWeight = FontWeight.Normal) },
             confirmButton = {
-                FeedbackButton(
+                Button(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         db.collection("brews").document(selectedBatchForDetails!!.id).delete()
                         showDeleteConfirm = false
                         selectedBatchForDetails = null
@@ -790,61 +942,6 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
     }
 }
 
-fun exportDataToCsv(context: Context, db: com.google.firebase.firestore.FirebaseFirestore) {
-    Toast.makeText(context, "Compiling CSV Database...", Toast.LENGTH_SHORT).show()
-    db.collection("brews").orderBy("timestamp", Query.Direction.ASCENDING).get()
-        .addOnSuccessListener { snapshot ->
-            if (snapshot.isEmpty) {
-                Toast.makeText(context, "No data to export.", Toast.LENGTH_SHORT).show()
-                return@addOnSuccessListener
-            }
-            try {
-                val docs = snapshot.documents
-                val dynamicKeys = mutableSetOf<String>()
-                val ignoreKeys = setOf("batchName", "timestamp", "status")
-
-                docs.forEach { doc ->
-                    doc.data?.keys?.filter { it !in ignoreKeys }?.let { dynamicKeys.addAll(it) }
-                }
-
-                val sortedKeys = dynamicKeys.sorted()
-                val csv = StringBuilder().append("Date,Batch Name,Status")
-                sortedKeys.forEach { csv.append(",\"$it\"") }
-                csv.append("\n")
-
-                docs.forEach { doc ->
-                    val data = doc.data ?: emptyMap()
-                    val name = (doc.getString("batchName") ?: "Unknown").replace("\"", "\"\"")
-                    val ts = doc.getLong("timestamp") ?: 0L
-                    val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
-                    val status = doc.getString("status") ?: "unknown"
-
-                    csv.append("\"$dateStr\",\"$name\",\"$status\"")
-                    sortedKeys.forEach { key ->
-                        val value = data[key]?.toString() ?: ""
-                        csv.append(",\"${value.replace("\"", "\"\"")}\"")
-                    }
-                    csv.append("\n")
-                }
-
-                val exportFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "WW_Yoghurt_Data.csv")
-                java.io.FileWriter(exportFile).use { it.write(csv.toString()) }
-
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", exportFile)
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/csv"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "Export to Google Drive"))
-            } catch (e: Exception) {
-                Toast.makeText(context, "Export Error: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        }.addOnFailureListener {
-            Toast.makeText(context, "Failed to fetch Database.", Toast.LENGTH_SHORT).show()
-        }
-}
-
 @Composable
 fun YogurtBrewScreen(
     schema: List<CustomField>,
@@ -859,6 +956,7 @@ fun YogurtBrewScreen(
     val context = LocalContext.current
     val db = Firebase.firestore
     val coroutineScope = rememberCoroutineScope()
+    val view = LocalView.current
 
     LaunchedEffect(forkedBatchName) {
         if (forkedBatchName.isNotBlank()) {
@@ -909,8 +1007,11 @@ fun YogurtBrewScreen(
                 }
                 Spacer(modifier = Modifier.height(24.dp))
 
-                FeedbackButton(
+                Button(
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
+
                         if (batchName.isNotBlank()) {
                             isSaving = true
                             coroutineScope.launch {
@@ -1084,8 +1185,10 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                 }
                 Spacer(modifier = Modifier.height(24.dp))
 
-                FeedbackButton(
+                Button(
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         selectedBrew?.let { brew ->
                             isSaving = true
                             val data = mutableMapOf<String, Any>("status" to "completed")
@@ -1128,6 +1231,7 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
     val db = Firebase.firestore
     val sharedPrefs = context.getSharedPreferences("WWPrefs", Context.MODE_PRIVATE)
     val apiKey = sharedPrefs.getString("GEMINI_API_KEY", "") ?: ""
+    val view = LocalView.current
 
     var prompt by remember { mutableStateOf("") }
     var savedChats by remember { mutableStateOf<List<SavedChat>>(emptyList()) }
@@ -1162,7 +1266,12 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
             ) {
-                Text("API Key Missing. Please configure it in the System tab.", modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onErrorContainer)
+                Text(
+                    "API Key Missing. Please configure it in the System tab.",
+                    modifier = Modifier.padding(16.dp),
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
         } else {
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), reverseLayout = false) {
@@ -1170,6 +1279,8 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
                     val isExpanded = expandedChatIds.contains(chat.id)
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            view.playSoundEffect(SoundEffectConstants.CLICK)
                             expandedChatIds = if (isExpanded) expandedChatIds - chat.id else expandedChatIds + chat.id
                         },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -1214,8 +1325,10 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surface, unfocusedContainerColor = MaterialTheme.colorScheme.surface)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                FeedbackIconButton(
+                IconButton(
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         if (prompt.isNotBlank()) {
                             val userText = prompt
                             prompt = ""
@@ -1256,6 +1369,7 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
 fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSchema: List<CustomField>, coroutineScope: CoroutineScope) {
     val context = LocalContext.current
     val db = Firebase.firestore
+    val view = LocalView.current
     val sharedPrefs = context.getSharedPreferences("WWPrefs", Context.MODE_PRIVATE)
 
     var apiKeyInput by remember { mutableStateOf(sharedPrefs.getString("GEMINI_API_KEY", "") ?: "") }
@@ -1296,8 +1410,10 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                     singleLine = true
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                FeedbackButton(
+                Button(
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         sharedPrefs.edit().putString("GEMINI_API_KEY", apiKeyInput).apply()
                         Toast.makeText(context, "API Key Saved Locally", Toast.LENGTH_SHORT).show()
                     },
@@ -1328,13 +1444,13 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                     ) {
                         Text("${field.name} (${field.type})", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, modifier = Modifier.weight(1f))
                         Row {
-                            FeedbackIconButton(onClick = { if (index > 0) { val temp = editBrewSchema[index]; editBrewSchema[index] = editBrewSchema[index - 1]; editBrewSchema[index - 1] = temp } }) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = MaterialTheme.colorScheme.primary) }
-                            FeedbackIconButton(onClick = { if (index < editBrewSchema.size - 1) { val temp = editBrewSchema[index]; editBrewSchema[index] = editBrewSchema[index + 1]; editBrewSchema[index + 1] = temp } }) { Icon(Icons.Default.KeyboardArrowDown, "Down", tint = MaterialTheme.colorScheme.primary) }
-                            FeedbackIconButton(onClick = { editBrewSchema.remove(field) }) { Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error) }
+                            IconButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); if (index > 0) { val temp = editBrewSchema[index]; editBrewSchema[index] = editBrewSchema[index - 1]; editBrewSchema[index - 1] = temp } }) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = MaterialTheme.colorScheme.primary) }
+                            IconButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); if (index < editBrewSchema.size - 1) { val temp = editBrewSchema[index]; editBrewSchema[index] = editBrewSchema[index + 1]; editBrewSchema[index + 1] = temp } }) { Icon(Icons.Default.KeyboardArrowDown, "Down", tint = MaterialTheme.colorScheme.primary) }
+                            IconButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); editBrewSchema.remove(field) }) { Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
-                TextButton(onClick = { fieldToAddPhase = "Brew"; showAddFieldDialog = true }) { Text("+ Add Brew Field", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); fieldToAddPhase = "Brew"; showAddFieldDialog = true }) { Text("+ Add Brew Field", fontWeight = FontWeight.Bold) }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
@@ -1347,41 +1463,36 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                     ) {
                         Text("${field.name} (${field.type})", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, modifier = Modifier.weight(1f))
                         Row {
-                            FeedbackIconButton(onClick = { if (index > 0) { val temp = editHarvestSchema[index]; editHarvestSchema[index] = editHarvestSchema[index - 1]; editHarvestSchema[index - 1] = temp } }) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = MaterialTheme.colorScheme.primary) }
-                            FeedbackIconButton(onClick = { if (index < editHarvestSchema.size - 1) { val temp = editHarvestSchema[index]; editHarvestSchema[index] = editHarvestSchema[index + 1]; editHarvestSchema[index + 1] = temp } }) { Icon(Icons.Default.KeyboardArrowDown, "Down", tint = MaterialTheme.colorScheme.primary) }
-                            FeedbackIconButton(onClick = { editHarvestSchema.remove(field) }) { Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error) }
+                            IconButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); if (index > 0) { val temp = editHarvestSchema[index]; editHarvestSchema[index] = editHarvestSchema[index - 1]; editHarvestSchema[index - 1] = temp } }) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = MaterialTheme.colorScheme.primary) }
+                            IconButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); if (index < editHarvestSchema.size - 1) { val temp = editHarvestSchema[index]; editHarvestSchema[index] = editHarvestSchema[index + 1]; editHarvestSchema[index + 1] = temp } }) { Icon(Icons.Default.KeyboardArrowDown, "Down", tint = MaterialTheme.colorScheme.primary) }
+                            IconButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); editHarvestSchema.remove(field) }) { Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
-                TextButton(onClick = { fieldToAddPhase = "Harvest"; showAddFieldDialog = true }) { Text("+ Add Harvest Field", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); view.playSoundEffect(SoundEffectConstants.CLICK); fieldToAddPhase = "Harvest"; showAddFieldDialog = true }) { Text("+ Add Harvest Field", fontWeight = FontWeight.Bold) }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                FeedbackButton(
+                Button(
                     onClick = {
+                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         isSaving = true
                         val configData = hashMapOf("brewFields" to editBrewSchema.map { mapOf("name" to it.name, "type" to it.type) }, "harvestFields" to editHarvestSchema.map { mapOf("name" to it.name, "type" to it.type) })
-                        db.collection("config").document("schema").set(configData).addOnSuccessListener {
-                            Toast.makeText(context, "Schema Updated Globally", Toast.LENGTH_SHORT).show()
-                            isSaving = false
-                        }.addOnFailureListener { isSaving = false }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isSaving
-                ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    } else {
-                        Text("Save & Apply Schema", fontWeight = FontWeight.Bold)
-                    }
-                }
+                        db.collection("config").document("schema").set(configData).addOnSuccessListener { Toast.makeText(context, "Schema Updated Globally", Toast.LENGTH_SHORT).show(); isSaving = false }.addOnFailureListener { isSaving = false }
+                    }, modifier = Modifier.fillMaxWidth(), enabled = !isSaving
+                ) { if (isSaving) CircularProgressIndicator(modifier = Modifier.size(24.dp)) else Text("Save & Apply Schema", fontWeight = FontWeight.Bold) }
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
-            onClick = { showChangelogDialog = true },
+            onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                view.playSoundEffect(SoundEffectConstants.CLICK)
+                showChangelogDialog = true
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
         ) {
@@ -1391,7 +1502,11 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
         Spacer(modifier = Modifier.height(8.dp))
 
         Button(
-            onClick = { checkForUpdates(context, coroutineScope) },
+            onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                view.playSoundEffect(SoundEffectConstants.CLICK)
+                checkForUpdates(context, coroutineScope)
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Download Latest Update", fontWeight = FontWeight.Bold)
@@ -1419,7 +1534,11 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                 }
             },
             confirmButton = {
-                Button(onClick = { showChangelogDialog = false }) {
+                Button(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    view.playSoundEffect(SoundEffectConstants.CLICK)
+                    showChangelogDialog = false
+                }) {
                     Text("Close", fontWeight = FontWeight.Bold)
                 }
             }
@@ -1443,7 +1562,14 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                     Row {
                         listOf("Text", "Number", "Slider").forEach { type ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = newFieldType == type, onClick = { newFieldType = type })
+                                RadioButton(
+                                    selected = newFieldType == type,
+                                    onClick = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                        view.playSoundEffect(SoundEffectConstants.CLICK)
+                                        newFieldType = type
+                                    }
+                                )
                                 Text(type, modifier = Modifier.padding(end = 8.dp), fontWeight = FontWeight.Normal)
                             }
                         }
@@ -1451,7 +1577,9 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                 }
             },
             confirmButton = {
-                FeedbackButton(onClick = {
+                Button(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    view.playSoundEffect(SoundEffectConstants.CLICK)
                     if (newFieldName.isNotBlank()) {
                         val newField = CustomField(newFieldName, newFieldType)
                         if (fieldToAddPhase == "Brew") {
@@ -1467,74 +1595,14 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddFieldDialog = false }) {
+                TextButton(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    view.playSoundEffect(SoundEffectConstants.CLICK)
+                    showAddFieldDialog = false
+                }) {
                     Text("Cancel", fontWeight = FontWeight.Normal)
                 }
             }
         )
-    }
-}
-
-fun checkForUpdates(context: Context, coroutineScope: CoroutineScope) {
-    Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
-
-    coroutineScope.launch {
-        try {
-            val response = withContext(Dispatchers.IO) {
-                URL("https://api.github.com/repos/exolon/ww-yoghurt/releases/latest").readText()
-            }
-            val json = JSONObject(response)
-            val latestTag = json.getString("tag_name").replace("v", "")
-
-            if (latestTag > APP_VERSION) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Downloading v$latestTag...", Toast.LENGTH_LONG).show()
-                    val apkName = "app-release.apk"
-                    val githubReleaseUrl = "https://github.com/exolon/ww-yoghurt/releases/latest/download/$apkName"
-                    val request = DownloadManager.Request(Uri.parse(githubReleaseUrl))
-                        .setTitle("WW Yoghurt Update")
-                        .setDescription("Downloading v$latestTag...")
-                        .setMimeType("application/vnd.android.package-archive")
-                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, apkName)
-
-                    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                    val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), apkName)
-                    if (file.exists()) file.delete()
-
-                    val downloadId = downloadManager.enqueue(request)
-
-                    val onComplete = object : BroadcastReceiver() {
-                        override fun onReceive(ctxt: Context, intent: Intent) {
-                            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                            if (id == downloadId) {
-                                val downloadedFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), apkName)
-                                val uri = FileProvider.getUriForFile(ctxt, "${ctxt.packageName}.provider", downloadedFile)
-                                val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(uri, "application/vnd.android.package-archive")
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                }
-                                ctxt.startActivity(installIntent)
-                                ctxt.unregisterReceiver(this)
-                            }
-                        }
-                    }
-                    val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        context.registerReceiver(onComplete, filter, Context.RECEIVER_EXPORTED)
-                    } else {
-                        context.registerReceiver(onComplete, filter)
-                    }
-                }
-            } else {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "You are already on the latest version (v$APP_VERSION).", Toast.LENGTH_LONG).show()
-                }
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Failed to check for updates: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 }
