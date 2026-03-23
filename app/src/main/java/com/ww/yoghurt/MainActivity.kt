@@ -9,12 +9,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.view.HapticFeedbackConstants
-import android.view.SoundEffectConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -47,7 +44,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -61,6 +57,7 @@ import com.google.ai.client.generativeai.GenerativeModel
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +69,16 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
+
+// Global Version Control
+const val APP_VERSION = "1.1.2"
+
+val appChangelog = mapOf(
+    "v1.1.2" to listOf("Restored proper architectural formatting."),
+    "v1.1.1" to listOf("Fixed Radar Chart label placement.", "Resolved Edit Save ClassCastException crash.", "Fixed GitHub 302 Redirect APK parsing error.", "Added active API version checking.", "Moved Changelog to overlay dialog."),
+    "v1.1.0" to listOf("Updated Gemini Model to v3 Flash.", "Added Historical Auto-Complete.", "Added Sensory Radar Charts & Trendlines.", "Added Batch Edit & Fork features."),
+    "v1.0.0" to listOf("Initial Release: Core Engine.", "Dynamic NoSQL Schema Builder.", "AI Diagnostics integration.", "Data mapping & CSV Export.")
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,16 +112,12 @@ class MainActivity : ComponentActivity() {
                 onSurfaceVariant = Color(0xFFCBD5E1)
             )
 
-            val isDark = isSystemInDarkTheme()
-            val WwColorScheme = if (isDark) darkScheme else lightScheme
+            val WwColorScheme = if (isSystemInDarkTheme()) darkScheme else lightScheme
 
             val GoogleSans = FontFamily(Font(R.font.googlesansflex))
             val defaultTypography = Typography()
             val WwTypography = Typography(
                 displayLarge = defaultTypography.displayLarge.copy(fontFamily = GoogleSans),
-                displayMedium = defaultTypography.displayMedium.copy(fontFamily = GoogleSans),
-                displaySmall = defaultTypography.displaySmall.copy(fontFamily = GoogleSans),
-                headlineLarge = defaultTypography.headlineLarge.copy(fontFamily = GoogleSans),
                 headlineMedium = defaultTypography.headlineMedium.copy(fontFamily = GoogleSans),
                 headlineSmall = defaultTypography.headlineSmall.copy(fontFamily = GoogleSans),
                 titleLarge = defaultTypography.titleLarge.copy(fontFamily = GoogleSans),
@@ -123,8 +126,6 @@ class MainActivity : ComponentActivity() {
                 bodyLarge = defaultTypography.bodyLarge.copy(fontFamily = GoogleSans),
                 bodyMedium = defaultTypography.bodyMedium.copy(fontFamily = GoogleSans),
                 bodySmall = defaultTypography.bodySmall.copy(fontFamily = GoogleSans),
-                labelLarge = defaultTypography.labelLarge.copy(fontFamily = GoogleSans),
-                labelMedium = defaultTypography.labelMedium.copy(fontFamily = GoogleSans),
                 labelSmall = defaultTypography.labelSmall.copy(fontFamily = GoogleSans)
             )
 
@@ -138,25 +139,27 @@ class MainActivity : ComponentActivity() {
 }
 
 val GeminiIcon: ImageVector
-    get() = ImageVector.Builder(
-        name = "Gemini", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f
-    ).apply {
+    get() = ImageVector.Builder(name = "Gemini", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
         path(fill = SolidColor(Color.Black)) {
-            moveTo(12f, 0f); curveTo(12f, 0f, 14.5f, 9.5f, 24f, 12f)
-            curveTo(24f, 12f, 14.5f, 14.5f, 12f, 24f); curveTo(12f, 24f, 9.5f, 14.5f, 0f, 12f)
-            curveTo(0f, 12f, 9.5f, 9.5f, 12f, 0f); close()
+            moveTo(12f, 0f)
+            curveTo(12f, 0f, 14.5f, 9.5f, 24f, 12f)
+            curveTo(24f, 12f, 14.5f, 14.5f, 12f, 24f)
+            curveTo(12f, 24f, 9.5f, 14.5f, 0f, 12f)
+            curveTo(0f, 12f, 9.5f, 9.5f, 12f, 0f)
+            close()
         }
         path(fill = SolidColor(Color.Black)) {
-            moveTo(20.5f, 0f); curveTo(20.5f, 0f, 21.5f, 3.5f, 24f, 4.5f)
-            curveTo(24f, 4.5f, 21.5f, 5.5f, 20.5f, 9f); curveTo(20.5f, 9f, 19.5f, 5.5f, 17f, 4.5f)
-            curveTo(17f, 4.5f, 19.5f, 3.5f, 20.5f, 0f); close()
+            moveTo(20.5f, 0f)
+            curveTo(20.5f, 0f, 21.5f, 3.5f, 24f, 4.5f)
+            curveTo(24f, 4.5f, 21.5f, 5.5f, 20.5f, 9f)
+            curveTo(20.5f, 9f, 19.5f, 5.5f, 17f, 4.5f)
+            curveTo(17f, 4.5f, 19.5f, 3.5f, 20.5f, 0f)
+            close()
         }
     }.build()
 
 val ForkIcon: ImageVector
-    get() = ImageVector.Builder(
-        name = "Fork", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f
-    ).apply {
+    get() = ImageVector.Builder(name = "Fork", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
         path(fill = SolidColor(Color.Black)) {
             moveTo(16f, 3f); lineTo(16f, 7f); lineTo(18f, 7f); lineTo(18f, 10f)
             curveTo(18f, 11.66f, 16.66f, 13f, 15f, 13f); lineTo(13f, 13f); lineTo(13f, 21f)
@@ -180,11 +183,11 @@ fun MainScreen() {
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
     val db = Firebase.firestore
-    val view = LocalView.current
 
     var brewSchema by remember { mutableStateOf(defaultBrewSchema) }
     var harvestSchema by remember { mutableStateOf(defaultHarvestSchema) }
     var schemaLoaded by remember { mutableStateOf(false) }
+
     var masterBatches by remember { mutableStateOf<List<YogurtBatch>>(emptyList()) }
     var batchesLoading by remember { mutableStateOf(true) }
 
@@ -195,7 +198,9 @@ fun MainScreen() {
         val map = mutableMapOf<String, MutableSet<String>>()
         masterBatches.forEach { batch ->
             batch.rawData.forEach { (key, value) ->
-                if (value is String && value.isNotBlank()) map.getOrPut(key) { mutableSetOf() }.add(value)
+                if (value is String && value.isNotBlank()) {
+                    map.getOrPut(key) { mutableSetOf() }.add(value)
+                }
             }
         }
         map
@@ -216,7 +221,10 @@ fun MainScreen() {
     DisposableEffect(Unit) {
         val listener = db.collection("brews").orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, e ->
-                if (e != null) { batchesLoading = false; return@addSnapshotListener }
+                if (e != null) {
+                    batchesLoading = false
+                    return@addSnapshotListener
+                }
                 if (snapshot != null) {
                     masterBatches = snapshot.documents.map { doc ->
                         val data = doc.data ?: emptyMap()
@@ -233,21 +241,23 @@ fun MainScreen() {
     }
 
     if (!schemaLoaded) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
         return
     }
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
         ScrollableTabRow(
-            selectedTabIndex = pagerState.currentPage, containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.primary, edgePadding = 8.dp
+            selectedTabIndex = pagerState.currentPage,
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.primary,
+            edgePadding = 8.dp
         ) {
             tabs.forEachIndexed { index, tabItem ->
                 Tab(
                     selected = pagerState.currentPage == index,
                     onClick = {
-                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                        view.playSoundEffect(SoundEffectConstants.CLICK)
                         coroutineScope.launch { pagerState.animateScrollToPage(index) }
                     },
                     icon = { Icon(tabItem.icon, contentDescription = tabItem.title) }
@@ -257,7 +267,9 @@ fun MainScreen() {
 
         HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
             Card(
-                modifier = Modifier.fillMaxSize().padding(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
@@ -265,6 +277,8 @@ fun MainScreen() {
                     0 -> DashboardScreen(
                         batches = masterBatches,
                         isLoading = batchesLoading,
+                        brewSchema = brewSchema,
+                        harvestSchema = harvestSchema,
                         onForkBatch = { batch ->
                             forkedBatchName = "Copy of ${batch.batchName}"
                             forkedValues.clear()
@@ -280,7 +294,7 @@ fun MainScreen() {
                     }
                     2 -> HarvestScreen(harvestSchema, historicalData)
                     3 -> AnalysisScreen(masterBatches)
-                    4 -> SystemSettingsScreen(brewSchema, harvestSchema)
+                    4 -> SystemSettingsScreen(brewSchema, harvestSchema, coroutineScope)
                 }
             }
         }
@@ -290,24 +304,48 @@ fun MainScreen() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AutoCompleteTextField(
-    value: String, onValueChange: (String) -> Unit, label: String, options: Set<String>, isNumber: Boolean, isLargeText: Boolean = false
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    options: Set<String>,
+    isNumber: Boolean,
+    isLargeText: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     val filteredOptions = options.filter { it.contains(value, ignoreCase = true) && it != value }
 
-    ExposedDropdownMenuBox(expanded = expanded && filteredOptions.isNotEmpty(), onExpandedChange = { expanded = it }) {
+    ExposedDropdownMenuBox(
+        expanded = expanded && filteredOptions.isNotEmpty(),
+        onExpandedChange = { expanded = it }
+    ) {
         OutlinedTextField(
-            value = value, onValueChange = { onValueChange(it); expanded = true }, label = { Text(label, fontWeight = FontWeight.Normal) },
-            modifier = Modifier.menuAnchor().fillMaxWidth().height(if (isLargeText) 120.dp else 60.dp),
-            keyboardOptions = if (isNumber) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            maxLines = if (isLargeText) 5 else 1, textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal)
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = true
+            },
+            label = { Text(label, fontWeight = FontWeight.Normal) },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+                .height(if (isLargeText) 120.dp else 60.dp),
+            keyboardOptions = if (isNumber) KeyboardOptions(keyboardType = KeyboardType.Number)
+            else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            maxLines = if (isLargeText) 5 else 1,
+            textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal)
         )
         if (filteredOptions.isNotEmpty()) {
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
                 filteredOptions.forEach { option ->
                     DropdownMenuItem(
                         text = { Text(option, fontWeight = FontWeight.Normal) },
-                        onClick = { onValueChange(option); expanded = false }
+                        onClick = {
+                            onValueChange(option)
+                            expanded = false
+                        }
                     )
                 }
             }
@@ -316,55 +354,8 @@ fun AutoCompleteTextField(
 }
 
 @Composable
-fun PerformanceChart(batches: List<YogurtBatch>) {
-    val validBatches = batches.filter { it.status == "completed" }.reversed()
-    val ratingKey = validBatches.firstOrNull()?.rawData?.keys?.firstOrNull { it.contains("Rating", ignoreCase = true) || it.contains("Overall", ignoreCase = true) } ?: "Overall Rating"
-    val chartData = validBatches.mapNotNull { (it.rawData[ratingKey] as? Number)?.toFloat() }
-    val primaryColor = MaterialTheme.colorScheme.primary
-
-    Card(
-        modifier = Modifier.fillMaxWidth().height(220.dp).padding(bottom = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Overall Rating Trend", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = primaryColor)
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (chartData.size < 2) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Complete at least 2 batches to generate trend chart.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Normal) }
-            } else {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val canvasWidth = size.width; val canvasHeight = size.height
-                    val maxScore = 7f; val minScore = 1f
-
-                    val gridSteps = 3
-                    for (i in 0..gridSteps) {
-                        val y = canvasHeight * (i.toFloat() / gridSteps)
-                        drawLine(color = primaryColor.copy(alpha = 0.1f), start = Offset(0f, y), end = Offset(canvasWidth, y), strokeWidth = 1.dp.toPx())
-                    }
-
-                    val xStep = canvasWidth / (chartData.size - 1).coerceAtLeast(1)
-                    val points = chartData.mapIndexed { index, score ->
-                        val x = index * xStep
-                        val normalizedY = 1f - ((score - minScore) / (maxScore - minScore))
-                        Offset(x, normalizedY * canvasHeight)
-                    }
-
-                    val path = Path().apply {
-                        moveTo(points.first().x, points.first().y)
-                        for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
-                    }
-                    drawPath(path = path, color = primaryColor.copy(alpha = 0.6f), style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round))
-                    points.forEach { point -> drawCircle(color = primaryColor, radius = 6.dp.toPx(), center = point) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun SensoryRadarChart(rawData: Map<String, Any>) {
-    val metrics = listOf("Acidity", "Density", "Texture", "Overall Rating")
+    val metrics = listOf("Acidity", "Density", "Texture", "Overall")
     val scores = metrics.map { key ->
         val actualKey = rawData.keys.firstOrNull { it.contains(key, ignoreCase = true) } ?: key
         (rawData[actualKey] as? Number)?.toFloat() ?: 0f
@@ -375,63 +366,70 @@ fun SensoryRadarChart(rawData: Map<String, Any>) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val surfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        Text("Sensory Profile", color = primaryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-        Spacer(modifier = Modifier.height(16.dp))
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp)
+    ) {
+        Text("Sensory Profile", color = primaryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(24.dp))
 
-        Canvas(modifier = Modifier.size(150.dp)) {
-            val center = Offset(size.width / 2, size.height / 2)
-            val radius = size.width / 2
-            val maxScore = 7f
+        Box(
+            modifier = Modifier.size(220.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(140.dp)) {
+                val center = Offset(size.width / 2, size.height / 2)
+                val radius = size.width / 2
+                val maxScore = 7f
 
-            for (step in 1..7 step 2) {
-                val stepRadius = radius * (step / maxScore)
-                val webPath = Path()
+                for (step in 1..7 step 2) {
+                    val stepRadius = radius * (step / maxScore)
+                    val webPath = Path()
+                    for (i in 0 until 4) {
+                        val angle = Math.toRadians((i * 90 - 90).toDouble())
+                        val x = center.x + stepRadius * cos(angle).toFloat()
+                        val y = center.y + stepRadius * sin(angle).toFloat()
+                        if (i == 0) webPath.moveTo(x, y) else webPath.lineTo(x, y)
+                    }
+                    webPath.close()
+                    drawPath(path = webPath, color = surfaceVariant.copy(alpha = 0.2f), style = Stroke(width = 1.dp.toPx()))
+                }
+
                 for (i in 0 until 4) {
                     val angle = Math.toRadians((i * 90 - 90).toDouble())
-                    val x = center.x + stepRadius * cos(angle).toFloat()
-                    val y = center.y + stepRadius * sin(angle).toFloat()
-                    if (i == 0) webPath.moveTo(x, y) else webPath.lineTo(x, y)
+                    val x = center.x + radius * cos(angle).toFloat()
+                    val y = center.y + radius * sin(angle).toFloat()
+                    drawLine(color = surfaceVariant.copy(alpha = 0.2f), start = center, end = Offset(x, y), strokeWidth = 1.dp.toPx())
                 }
-                webPath.close()
-                drawPath(path = webPath, color = surfaceVariant.copy(alpha = 0.2f), style = Stroke(width = 1.dp.toPx()))
+
+                val dataPath = Path()
+                scores.forEachIndexed { i, score ->
+                    val angle = Math.toRadians((i * 90 - 90).toDouble())
+                    val scoreRadius = radius * (score / maxScore)
+                    val x = center.x + scoreRadius * cos(angle).toFloat()
+                    val y = center.y + scoreRadius * sin(angle).toFloat()
+                    if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
+                    drawCircle(color = primaryColor, radius = 4.dp.toPx(), center = Offset(x, y))
+                }
+                dataPath.close()
+                drawPath(path = dataPath, color = primaryColor.copy(alpha = 0.4f))
+                drawPath(path = dataPath, color = primaryColor, style = Stroke(width = 2.dp.toPx()))
             }
 
-            for (i in 0 until 4) {
-                val angle = Math.toRadians((i * 90 - 90).toDouble())
-                val x = center.x + radius * cos(angle).toFloat()
-                val y = center.y + radius * sin(angle).toFloat()
-                drawLine(color = surfaceVariant.copy(alpha = 0.2f), start = center, end = Offset(x, y), strokeWidth = 1.dp.toPx())
-            }
-
-            val dataPath = Path()
-            scores.forEachIndexed { i, score ->
-                val angle = Math.toRadians((i * 90 - 90).toDouble())
-                val scoreRadius = radius * (score / maxScore)
-                val x = center.x + scoreRadius * cos(angle).toFloat()
-                val y = center.y + scoreRadius * sin(angle).toFloat()
-                if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
-                drawCircle(color = primaryColor, radius = 4.dp.toPx(), center = Offset(x, y))
-            }
-            dataPath.close()
-            drawPath(path = dataPath, color = primaryColor.copy(alpha = 0.4f))
-            drawPath(path = dataPath, color = primaryColor, style = Stroke(width = 2.dp.toPx()))
-        }
-
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Acidity", fontSize = MaterialTheme.typography.labelSmall.fontSize, color = surfaceVariant)
-            Text("Density", fontSize = MaterialTheme.typography.labelSmall.fontSize, color = surfaceVariant)
-            Text("Texture", fontSize = MaterialTheme.typography.labelSmall.fontSize, color = surfaceVariant)
-            Text("Overall", fontSize = MaterialTheme.typography.labelSmall.fontSize, color = surfaceVariant)
+            Text("Acidity", fontSize = MaterialTheme.typography.labelMedium.fontSize, fontWeight = FontWeight.Bold, color = surfaceVariant, modifier = Modifier.align(Alignment.TopCenter))
+            Text("Density", fontSize = MaterialTheme.typography.labelMedium.fontSize, fontWeight = FontWeight.Bold, color = surfaceVariant, modifier = Modifier.align(Alignment.CenterEnd))
+            Text("Texture", fontSize = MaterialTheme.typography.labelMedium.fontSize, fontWeight = FontWeight.Bold, color = surfaceVariant, modifier = Modifier.align(Alignment.BottomCenter))
+            Text("Overall", fontSize = MaterialTheme.typography.labelMedium.fontSize, fontWeight = FontWeight.Bold, color = surfaceVariant, modifier = Modifier.align(Alignment.CenterStart))
         }
     }
 }
 
 @Composable
-fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch: (YogurtBatch) -> Unit) {
+fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: List<CustomField>, harvestSchema: List<CustomField>, onForkBatch: (YogurtBatch) -> Unit) {
     val context = LocalContext.current
     val db = Firebase.firestore
-    val view = LocalView.current
 
     var selectedBatchForDetails by remember { mutableStateOf<YogurtBatch?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -440,13 +438,22 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp)
+            ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ww_logo), contentDescription = "WW Yoghurt Logo",
+                    painter = painterResource(id = R.drawable.ww_logo),
+                    contentDescription = "WW Yoghurt Logo",
                     modifier = Modifier.size(144.dp).clip(RoundedCornerShape(16.dp))
                 )
             }
-            FeedbackIconButton(onClick = { exportDataToCsv(context, db) }, modifier = Modifier.align(Alignment.TopEnd)) {
+            FeedbackIconButton(
+                onClick = { exportDataToCsv(context, db) },
+                modifier = Modifier.align(Alignment.TopEnd)
+            ) {
                 Icon(Icons.Default.Share, contentDescription = "Export to CSV", tint = MaterialTheme.colorScheme.primary)
             }
         }
@@ -454,28 +461,48 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
         } else if (batches.isEmpty()) {
-            Text("No batches found. Swipe right to start brewing!", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Normal, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
+            Text(
+                "No batches found. Swipe right to start brewing!",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp)
+            )
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
-                    PerformanceChart(batches)
                 }
 
                 itemsIndexed(batches) { index, batch ->
                     val chronologicalNumber = batches.size - index
                     Card(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                            view.playSoundEffect(SoundEffectConstants.CLICK)
-                            selectedBatchForDetails = batch
-                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedBatchForDetails = batch
+                            },
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("#$chronologicalNumber", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 12.dp))
-                            Box(modifier = Modifier.width(1.dp).height(36.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "#$chronologicalNumber",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .height(36.dp)
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                            )
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(batch.batchName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -487,9 +514,13 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                                 if (rating != null) {
                                     val scoreColor = if (rating >= 6) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     Text("$rating/7", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall, color = scoreColor)
-                                } else { Icon(Icons.Default.Add, contentDescription = "Done") }
+                                } else {
+                                    Icon(Icons.Default.Add, contentDescription = "Done")
+                                }
                             } else {
-                                Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("Brewing", color = Color.White, fontWeight = FontWeight.Normal, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) }
+                                Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                                    Text("Brewing", color = Color.White, fontWeight = FontWeight.Normal, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
+                                }
                             }
                         }
                     }
@@ -512,13 +543,17 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
 
     selectedBatchForDetails?.let { batch ->
         AlertDialog(
-            onDismissRequest = { selectedBatchForDetails = null; isEditing = false },
-            title = { Text(if (isEditing) "Edit ${batch.batchName}" else batch.batchName, fontWeight = FontWeight.Bold) },
+            onDismissRequest = {
+                selectedBatchForDetails = null
+                isEditing = false
+            },
+            title = {
+                Text(if (isEditing) "Edit ${batch.batchName}" else batch.batchName, fontWeight = FontWeight.Bold)
+            },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     if (!isEditing) {
                         Text("Date: ${batch.dateStr}", fontWeight = FontWeight.Normal)
-
                         if (batch.status == "completed") {
                             SensoryRadarChart(batch.rawData)
                         }
@@ -526,6 +561,7 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         Text("Data Log", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(8.dp))
+
                         val ignoreKeys = listOf("batchName", "timestamp", "status")
                         batch.rawData.forEach { (key, value) ->
                             if (!ignoreKeys.contains(key)) {
@@ -537,9 +573,12 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
                         batch.rawData.forEach { (key, value) ->
                             if (!ignoreKeys.contains(key)) {
                                 OutlinedTextField(
-                                    value = editValues[key] ?: "", onValueChange = { editValues[key] = it }, label = { Text(key, fontWeight = FontWeight.Normal) },
+                                    value = editValues[key] ?: "",
+                                    onValueChange = { editValues[key] = it },
+                                    label = { Text(key, fontWeight = FontWeight.Normal) },
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                    keyboardOptions = if (value is Number) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                                    keyboardOptions = if (value is Number) KeyboardOptions(keyboardType = KeyboardType.Number)
+                                    else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                                     textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal)
                                 )
                             }
@@ -549,39 +588,73 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
             },
             confirmButton = {
                 if (isEditing) {
-                    FeedbackButton(onClick = {
-                        val updatedData = batch.rawData.toMutableMap()
-                        editValues.forEach { (k, v) ->
-                            val original = batch.rawData[k]
-                            if (original is Number) updatedData[k] = v.toFloatOrNull() ?: original.toFloat() else updatedData[k] = v
+                    FeedbackButton(
+                        onClick = {
+                            val updatedData = batch.rawData.toMutableMap()
+                            val allFields = brewSchema + harvestSchema
+
+                            editValues.forEach { (k, v) ->
+                                val fieldDef = allFields.find { it.name == k }
+                                if (fieldDef?.type == "Number" || fieldDef?.type == "Slider") {
+                                    updatedData[k] = v.toFloatOrNull() ?: 0f
+                                } else {
+                                    updatedData[k] = v
+                                }
+                            }
+
+                            db.collection("brews").document(batch.id).update(updatedData).addOnSuccessListener {
+                                Toast.makeText(context, "Batch Updated", Toast.LENGTH_SHORT).show()
+                                selectedBatchForDetails = null
+                                isEditing = false
+                            }
                         }
-                        db.collection("brews").document(batch.id).update(updatedData).addOnSuccessListener {
-                            Toast.makeText(context, "Batch Updated", Toast.LENGTH_SHORT).show()
-                            selectedBatchForDetails = null; isEditing = false
-                        }
-                    }) { Text("Save", fontWeight = FontWeight.Bold) }
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
                 } else {
-                    FeedbackButton(onClick = { selectedBatchForDetails = null }) { Text("Close", fontWeight = FontWeight.Normal) }
+                    FeedbackButton(
+                        onClick = { selectedBatchForDetails = null }
+                    ) {
+                        Text("Close", fontWeight = FontWeight.Normal)
+                    }
                 }
             },
             dismissButton = {
                 Row {
                     if (!isEditing) {
-                        FeedbackIconButton(onClick = {
-                            editValues.clear()
-                            val ignoreKeys = listOf("batchName", "timestamp", "status")
-                            batch.rawData.forEach { (k, v) -> if (k !in ignoreKeys) editValues[k] = v.toString() }
-                            isEditing = true
-                        }) { Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary) }
+                        FeedbackIconButton(
+                            onClick = {
+                                editValues.clear()
+                                val ignoreKeys = listOf("batchName", "timestamp", "status")
+                                batch.rawData.forEach { (k, v) ->
+                                    if (k !in ignoreKeys) editValues[k] = v.toString()
+                                }
+                                isEditing = true
+                            }
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                        }
 
-                        FeedbackIconButton(onClick = {
-                            onForkBatch(batch)
-                            selectedBatchForDetails = null
-                        }) { Icon(ForkIcon, contentDescription = "Fork Batch", tint = MaterialTheme.colorScheme.primary) }
+                        FeedbackIconButton(
+                            onClick = {
+                                onForkBatch(batch)
+                                selectedBatchForDetails = null
+                            }
+                        ) {
+                            Icon(ForkIcon, contentDescription = "Fork Batch", tint = MaterialTheme.colorScheme.primary)
+                        }
                     } else {
-                        FeedbackIconButton(onClick = { isEditing = false }) { Icon(Icons.Default.Close, contentDescription = "Cancel Edit", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        FeedbackIconButton(
+                            onClick = { isEditing = false }
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel Edit", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    FeedbackIconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
+                    FeedbackIconButton(
+                        onClick = { showDeleteConfirm = true }
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         )
@@ -593,14 +666,79 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, onForkBatch:
             title = { Text("Delete Batch?", fontWeight = FontWeight.Bold) },
             text = { Text("This action cannot be undone.", fontWeight = FontWeight.Normal) },
             confirmButton = {
-                FeedbackButton(colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), onClick = {
-                    db.collection("brews").document(selectedBatchForDetails!!.id).delete()
-                    showDeleteConfirm = false; selectedBatchForDetails = null
-                }) { Text("Delete", fontWeight = FontWeight.Bold) }
+                FeedbackButton(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        db.collection("brews").document(selectedBatchForDetails!!.id).delete()
+                        showDeleteConfirm = false
+                        selectedBatchForDetails = null
+                    }
+                ) {
+                    Text("Delete", fontWeight = FontWeight.Bold)
+                }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", fontWeight = FontWeight.Normal) } }
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontWeight = FontWeight.Normal)
+                }
+            }
         )
     }
+}
+
+fun exportDataToCsv(context: Context, db: com.google.firebase.firestore.FirebaseFirestore) {
+    Toast.makeText(context, "Compiling CSV Database...", Toast.LENGTH_SHORT).show()
+    db.collection("brews").orderBy("timestamp", Query.Direction.ASCENDING).get()
+        .addOnSuccessListener { snapshot ->
+            if (snapshot.isEmpty) {
+                Toast.makeText(context, "No data to export.", Toast.LENGTH_SHORT).show()
+                return@addOnSuccessListener
+            }
+            try {
+                val docs = snapshot.documents
+                val dynamicKeys = mutableSetOf<String>()
+                val ignoreKeys = setOf("batchName", "timestamp", "status")
+
+                docs.forEach { doc ->
+                    doc.data?.keys?.filter { it !in ignoreKeys }?.let { dynamicKeys.addAll(it) }
+                }
+
+                val sortedKeys = dynamicKeys.sorted()
+                val csv = StringBuilder().append("Date,Batch Name,Status")
+                sortedKeys.forEach { csv.append(",\"$it\"") }
+                csv.append("\n")
+
+                docs.forEach { doc ->
+                    val data = doc.data ?: emptyMap()
+                    val name = (doc.getString("batchName") ?: "Unknown").replace("\"", "\"\"")
+                    val ts = doc.getLong("timestamp") ?: 0L
+                    val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
+                    val status = doc.getString("status") ?: "unknown"
+
+                    csv.append("\"$dateStr\",\"$name\",\"$status\"")
+                    sortedKeys.forEach { key ->
+                        val value = data[key]?.toString() ?: ""
+                        csv.append(",\"${value.replace("\"", "\"\"")}\"")
+                    }
+                    csv.append("\n")
+                }
+
+                val exportFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "WW_Yoghurt_Data.csv")
+                java.io.FileWriter(exportFile).use { it.write(csv.toString()) }
+
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", exportFile)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Export to Google Drive"))
+            } catch (e: Exception) {
+                Toast.makeText(context, "Export Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }.addOnFailureListener {
+            Toast.makeText(context, "Failed to fetch Database.", Toast.LENGTH_SHORT).show()
+        }
 }
 
 @Composable
@@ -627,46 +765,59 @@ fun YogurtBrewScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("Phase 1: The Brew", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Log ingredients and environment.", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(16.dp))
 
-        Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 OutlinedTextField(
-                    value = batchName, onValueChange = { batchName = it; onClearFork() }, label = { Text("Batch Name (e.g., Batch #1)", fontWeight = FontWeight.Normal) },
-                    modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                    textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), enabled = !isSaving
+                    value = batchName,
+                    onValueChange = { batchName = it; onClearFork() },
+                    label = { Text("Batch Name (e.g., Batch #1)", fontWeight = FontWeight.Normal) },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal),
+                    enabled = !isSaving
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+
                 schema.forEach { field ->
                     AutoCompleteTextField(
-                        value = dynamicTextValues[field.name] ?: "", onValueChange = { dynamicTextValues[field.name] = it; onClearFork() },
-                        label = field.name, options = historicalData[field.name] ?: emptySet(), isNumber = field.type == "Number"
+                        value = dynamicTextValues[field.name] ?: "",
+                        onValueChange = { dynamicTextValues[field.name] = it; onClearFork() },
+                        label = field.name,
+                        options = historicalData[field.name] ?: emptySet(),
+                        isNumber = field.type == "Number"
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
                 Spacer(modifier = Modifier.height(24.dp))
+
                 FeedbackButton(
                     onClick = {
                         if (batchName.isNotBlank()) {
                             isSaving = true
-
                             coroutineScope.launch {
                                 var weatherData = "Unknown"
                                 try {
                                     val response = withContext(Dispatchers.IO) {
                                         URL("https://api.open-meteo.com/v1/forecast?latitude=37.98&longitude=23.72&current_weather=true").readText()
                                     }
-                                    val json = JSONObject(response)
-                                    val temp = json.getJSONObject("current_weather").getDouble("temperature")
+                                    val temp = JSONObject(response).getJSONObject("current_weather").getDouble("temperature")
                                     weatherData = "$temp °C"
-                                } catch (e: Exception) {
-                                    // Silently fail if offline, don't block the save
-                                }
+                                } catch (e: Exception) {}
 
                                 val brewData = hashMapOf<String, Any>(
                                     "batchName" to batchName,
@@ -676,22 +827,42 @@ fun YogurtBrewScreen(
                                 )
                                 schema.forEach { field ->
                                     val stringVal = dynamicTextValues[field.name] ?: ""
-                                    if (field.type == "Number") brewData[field.name] = stringVal.toFloatOrNull() ?: 0f else brewData[field.name] = stringVal
+                                    if (field.type == "Number") {
+                                        brewData[field.name] = stringVal.toFloatOrNull() ?: 0f
+                                    } else {
+                                        brewData[field.name] = stringVal
+                                    }
                                 }
                                 db.collection("brews").add(brewData).addOnSuccessListener {
                                     Toast.makeText(context, "Brew saved!", Toast.LENGTH_SHORT).show()
-                                    batchName = ""; dynamicTextValues.clear(); onClearFork(); isSaving = false
-                                }.addOnFailureListener { e -> Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show(); isSaving = false }
+                                    batchName = ""
+                                    dynamicTextValues.clear()
+                                    onClearFork()
+                                    isSaving = false
+                                }.addOnFailureListener { e ->
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                    isSaving = false
+                                }
                             }
-                        } else { Toast.makeText(context, "Batch Name is required.", Toast.LENGTH_SHORT).show() }
+                        } else {
+                            Toast.makeText(context, "Batch Name is required.", Toast.LENGTH_SHORT).show()
+                        }
                     },
-                    modifier = Modifier.fillMaxWidth(), enabled = !isSaving
-                ) { if (isSaving) CircularProgressIndicator(modifier = Modifier.size(24.dp)) else Text("Save Brew Phase", fontWeight = FontWeight.Bold) }
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSaving
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        Text("Save Brew Phase", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<String>>) {
     val dynamicSliderValues = remember { mutableStateMapOf<String, Float>() }
@@ -704,7 +875,6 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
 
     val context = LocalContext.current
     val db = Firebase.firestore
-    val view = LocalView.current
 
     LaunchedEffect(Unit) {
         db.collection("brews").whereEqualTo("status", "brewing").get().addOnSuccessListener { snapshot ->
@@ -713,77 +883,127 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                 val ts = doc.getLong("timestamp") ?: 0L
                 PendingBrew(doc.id, "$name (${SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(ts))})")
             }
-            pendingBrews = brews; if (brews.isNotEmpty()) selectedBrew = brews.first()
+            pendingBrews = brews
+            if (brews.isNotEmpty()) selectedBrew = brews.first()
             isLoading = false
         }.addOnFailureListener { isLoading = false }
     }
 
-    Column(modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text("Phase 2: The Harvest", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Tasting and evaluation.", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(16.dp))
 
-        Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                if (isLoading) { CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                } else if (pendingBrews.isEmpty()) { Text("No active brews waiting.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Normal)
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else if (pendingBrews.isEmpty()) {
+                    Text("No active brews waiting.", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Normal)
                 } else {
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    ExposedDropdownMenuBox(
+                        expanded = dropdownExpanded,
+                        onExpandedChange = { dropdownExpanded = it }
+                    ) {
                         OutlinedTextField(
-                            value = selectedBrew?.displayLabel ?: "", onValueChange = {}, readOnly = true, label = { Text("Select Target Batch", fontWeight = FontWeight.Normal) },
-                            trailingIcon = { Icon(Icons.Default.ArrowDropDown, "Dropdown") }, modifier = Modifier.fillMaxWidth().clickable { dropdownExpanded = true },
-                            enabled = false, textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), colors = OutlinedTextFieldDefaults.colors(disabledTextColor = MaterialTheme.colorScheme.onSurface)
+                            value = selectedBrew?.displayLabel ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Select Target Batch", fontWeight = FontWeight.Normal) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal),
+                            colors = OutlinedTextFieldDefaults.colors(disabledTextColor = MaterialTheme.colorScheme.onSurface)
                         )
-                        Box(modifier = Modifier.matchParentSize().clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                            view.playSoundEffect(SoundEffectConstants.CLICK)
-                            dropdownExpanded = true
-                        })
-                        DropdownMenu(expanded = dropdownExpanded, onDismissRequest = { dropdownExpanded = false }, modifier = Modifier.fillMaxWidth(0.9f)) {
+                        ExposedDropdownMenu(
+                            expanded = dropdownExpanded,
+                            onDismissRequest = { dropdownExpanded = false }
+                        ) {
                             pendingBrews.forEach { brew ->
-                                DropdownMenuItem(text = { Text(brew.displayLabel, fontWeight = FontWeight.Normal) }, onClick = {
-                                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                                    view.playSoundEffect(SoundEffectConstants.CLICK)
-                                    selectedBrew = brew; dropdownExpanded = false
-                                })
+                                DropdownMenuItem(
+                                    text = { Text(brew.displayLabel, fontWeight = FontWeight.Normal) },
+                                    onClick = {
+                                        selectedBrew = brew
+                                        dropdownExpanded = false
+                                    }
+                                )
                             }
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
+
                 schema.forEach { field ->
                     if (field.type == "Slider") {
                         val sliderVal = dynamicSliderValues[field.name] ?: 4f
                         Text("${field.name}: ${sliderVal.toInt()}", fontWeight = FontWeight.Bold)
-                        Slider(value = sliderVal, onValueChange = { dynamicSliderValues[field.name] = it }, valueRange = 1f..7f, steps = 5)
+                        Slider(
+                            value = sliderVal,
+                            onValueChange = { dynamicSliderValues[field.name] = it },
+                            valueRange = 1f..7f,
+                            steps = 5
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                     } else {
                         AutoCompleteTextField(
-                            value = dynamicTextValues[field.name] ?: "", onValueChange = { dynamicTextValues[field.name] = it },
-                            label = field.name, options = historicalData[field.name] ?: emptySet(), isNumber = field.type == "Number", isLargeText = field.name == "Notes"
+                            value = dynamicTextValues[field.name] ?: "",
+                            onValueChange = { dynamicTextValues[field.name] = it },
+                            label = field.name,
+                            options = historicalData[field.name] ?: emptySet(),
+                            isNumber = field.type == "Number",
+                            isLargeText = field.name == "Notes"
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
+
                 FeedbackButton(
                     onClick = {
                         selectedBrew?.let { brew ->
                             isSaving = true
                             val data = mutableMapOf<String, Any>("status" to "completed")
                             schema.forEach { field ->
-                                if (field.type == "Slider") data[field.name] = (dynamicSliderValues[field.name] ?: 4f).toInt()
-                                else if (field.type == "Number") data[field.name] = (dynamicTextValues[field.name] ?: "").toFloatOrNull() ?: 0f
-                                else data[field.name] = dynamicTextValues[field.name] ?: ""
+                                if (field.type == "Slider") {
+                                    data[field.name] = (dynamicSliderValues[field.name] ?: 4f).toInt()
+                                } else if (field.type == "Number") {
+                                    data[field.name] = (dynamicTextValues[field.name] ?: "").toFloatOrNull() ?: 0f
+                                } else {
+                                    data[field.name] = dynamicTextValues[field.name] ?: ""
+                                }
                             }
                             db.collection("brews").document(brew.id).update(data).addOnSuccessListener {
                                 Toast.makeText(context, "Harvest saved!", Toast.LENGTH_SHORT).show()
-                                dynamicSliderValues.clear(); dynamicTextValues.clear(); pendingBrews = pendingBrews.filter { it.id != brew.id }
-                                selectedBrew = pendingBrews.firstOrNull(); isSaving = false
+                                dynamicSliderValues.clear()
+                                dynamicTextValues.clear()
+                                pendingBrews = pendingBrews.filter { it.id != brew.id }
+                                selectedBrew = pendingBrews.firstOrNull()
+                                isSaving = false
                             }.addOnFailureListener { isSaving = false }
                         }
-                    }, modifier = Modifier.fillMaxWidth(), enabled = !isSaving && selectedBrew != null
-                ) { if (isSaving) CircularProgressIndicator(modifier = Modifier.size(24.dp)) else Text("Save Harvest", fontWeight = FontWeight.Bold) }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSaving && selectedBrew != null
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        Text("Save Harvest", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -825,7 +1045,10 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
         Spacer(modifier = Modifier.height(16.dp))
 
         if (apiKey.isBlank()) {
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
                 Text("API Key Missing. Please configure it in the System tab.", modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onErrorContainer)
             }
         } else {
@@ -854,7 +1077,10 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
 
                 if (isThinking) {
                     item {
-                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
                             CircularProgressIndicator(modifier = Modifier.padding(16.dp).size(24.dp).align(Alignment.CenterHorizontally), strokeWidth = 2.dp)
                         }
                     }
@@ -865,8 +1091,12 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
-                    value = prompt, onValueChange = { prompt = it }, placeholder = { Text("E.g., Why was my last batch so tart?", fontWeight = FontWeight.Normal) },
-                    modifier = Modifier.weight(1f), enabled = !isThinking, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    placeholder = { Text("E.g., Why was my last batch so tart?", fontWeight = FontWeight.Normal) },
+                    modifier = Modifier.weight(1f),
+                    enabled = !isThinking,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surface, unfocusedContainerColor = MaterialTheme.colorScheme.surface)
                 )
@@ -899,15 +1129,18 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
                             }
                         }
                     },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(12.dp)), enabled = !isThinking && prompt.isNotBlank()
-                ) { Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.White) }
+                    modifier = Modifier.background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(12.dp)),
+                    enabled = !isThinking && prompt.isNotBlank()
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.White)
+                }
             }
         }
     }
 }
 
 @Composable
-fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSchema: List<CustomField>) {
+fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSchema: List<CustomField>, coroutineScope: CoroutineScope) {
     val context = LocalContext.current
     val db = Firebase.firestore
     val sharedPrefs = context.getSharedPreferences("WWPrefs", Context.MODE_PRIVATE)
@@ -918,45 +1151,68 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
     val editBrewSchema = remember(currentBrewSchema) { mutableStateListOf(*currentBrewSchema.toTypedArray()) }
     val editHarvestSchema = remember(currentHarvestSchema) { mutableStateListOf(*currentHarvestSchema.toTypedArray()) }
     var showAddFieldDialog by remember { mutableStateOf(false) }
+    var showChangelogDialog by remember { mutableStateOf(false) }
     var fieldToAddPhase by remember { mutableStateOf("Brew") }
     var newFieldName by remember { mutableStateOf("") }
     var newFieldType by remember { mutableStateOf("Text") }
 
-    Column(modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text("System Engine", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Modify global variables & integrations.", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(16.dp))
 
-        Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("AI Integration", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Enter your Gemini API Key. This is stored securely on this device.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
                 OutlinedTextField(
-                    value = apiKeyInput, onValueChange = { apiKeyInput = it }, label = { Text("Gemini API Key", fontWeight = FontWeight.Normal) },
-                    modifier = Modifier.fillMaxWidth(), textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal), singleLine = true
+                    value = apiKeyInput,
+                    onValueChange = { apiKeyInput = it },
+                    label = { Text("Gemini API Key", fontWeight = FontWeight.Normal) },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal),
+                    singleLine = true
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 FeedbackButton(
                     onClick = {
                         sharedPrefs.edit().putString("GEMINI_API_KEY", apiKeyInput).apply()
                         Toast.makeText(context, "API Key Saved Locally", Toast.LENGTH_SHORT).show()
-                    }, modifier = Modifier.fillMaxWidth()
-                ) { Text("Save API Key", fontWeight = FontWeight.Bold) }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Save API Key", fontWeight = FontWeight.Bold)
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("Schema Editor", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text("Brew Phase Fields", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 editBrewSchema.forEachIndexed { index, field ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text("${field.name} (${field.type})", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, modifier = Modifier.weight(1f))
                         Row {
                             FeedbackIconButton(onClick = { if (index > 0) { val temp = editBrewSchema[index]; editBrewSchema[index] = editBrewSchema[index - 1]; editBrewSchema[index - 1] = temp } }) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = MaterialTheme.colorScheme.primary) }
@@ -971,7 +1227,11 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
 
                 Text("Harvest Phase Fields", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 editHarvestSchema.forEachIndexed { index, field ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text("${field.name} (${field.type})", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal, modifier = Modifier.weight(1f))
                         Row {
                             FeedbackIconButton(onClick = { if (index > 0) { val temp = editHarvestSchema[index]; editHarvestSchema[index] = editHarvestSchema[index - 1]; editHarvestSchema[index - 1] = temp } }) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = MaterialTheme.colorScheme.primary) }
@@ -987,22 +1247,73 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                 FeedbackButton(
                     onClick = {
                         isSaving = true
-                        val configData = hashMapOf("brewFields" to editBrewSchema.map { mapOf("name" to it.name, "type" to it.type) }, "harvestFields" to editHarvestSchema.map { mapOf("name" to it.name, "type" to it.type) })
-                        db.collection("config").document("schema").set(configData).addOnSuccessListener { Toast.makeText(context, "Schema Updated Globally", Toast.LENGTH_SHORT).show(); isSaving = false }.addOnFailureListener { isSaving = false }
-                    }, modifier = Modifier.fillMaxWidth(), enabled = !isSaving
-                ) { if (isSaving) CircularProgressIndicator(modifier = Modifier.size(24.dp)) else Text("Save & Apply Schema", fontWeight = FontWeight.Bold) }
+                        val configData = hashMapOf(
+                            "brewFields" to editBrewSchema.map { mapOf("name" to it.name, "type" to it.type) },
+                            "harvestFields" to editHarvestSchema.map { mapOf("name" to it.name, "type" to it.type) }
+                        )
+                        db.collection("config").document("schema").set(configData).addOnSuccessListener {
+                            Toast.makeText(context, "Schema Updated Globally", Toast.LENGTH_SHORT).show()
+                            isSaving = false
+                        }.addOnFailureListener { isSaving = false }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSaving
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        Text("Save & Apply Schema", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
+
         Spacer(modifier = Modifier.height(24.dp))
-        Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Changelog (v1.1.1 Hotfix)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("- Restored missing exportDataToCsv and checkForUpdates functions that were truncated during code compression.", fontWeight = FontWeight.Normal)
-            }
+
+        Button(
+            onClick = { showChangelogDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+        ) {
+            Text("View Full Changelog", fontWeight = FontWeight.Bold)
         }
-        Spacer(modifier = Modifier.height(24.dp))
-        FeedbackButton(onClick = { checkForUpdates(context) }, modifier = Modifier.fillMaxWidth()) { Text("Check for Updates & Install APK", fontWeight = FontWeight.Bold) }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = { checkForUpdates(context, coroutineScope) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Download Latest Update", fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("Version v$APP_VERSION", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    if (showChangelogDialog) {
+        AlertDialog(
+            onDismissRequest = { showChangelogDialog = false },
+            title = { Text("App Changelog", fontWeight = FontWeight.Bold) },
+            text = {
+                LazyColumn {
+                    appChangelog.forEach { (version, changes) ->
+                        item {
+                            Text(version, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                            changes.forEach { change ->
+                                Text("• $change", fontWeight = FontWeight.Normal, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp, bottom = 2.dp))
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showChangelogDialog = false }) {
+                    Text("Close", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     if (showAddFieldDialog) {
@@ -1011,7 +1322,12 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
             title = { Text("Add Field to $fieldToAddPhase", fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    OutlinedTextField(value = newFieldName, onValueChange = { newFieldName = it }, label = { Text("Parameter Name", fontWeight = FontWeight.Normal) }, textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal))
+                    OutlinedTextField(
+                        value = newFieldName,
+                        onValueChange = { newFieldName = it },
+                        label = { Text("Parameter Name", fontWeight = FontWeight.Normal) },
+                        textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.Normal)
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Type:", fontWeight = FontWeight.Bold)
                     Row {
@@ -1024,72 +1340,91 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                     }
                 }
             },
-            confirmButton = { FeedbackButton(onClick = { if (newFieldName.isNotBlank()) { val newField = CustomField(newFieldName, newFieldType); if (fieldToAddPhase == "Brew") editBrewSchema.add(newField) else editHarvestSchema.add(newField); newFieldName = ""; showAddFieldDialog = false } }) { Text("Add", fontWeight = FontWeight.Bold) } },
-            dismissButton = { TextButton(onClick = { showAddFieldDialog = false }) { Text("Cancel", fontWeight = FontWeight.Normal) } }
+            confirmButton = {
+                FeedbackButton(onClick = {
+                    if (newFieldName.isNotBlank()) {
+                        val newField = CustomField(newFieldName, newFieldType)
+                        if (fieldToAddPhase == "Brew") {
+                            editBrewSchema.add(newField)
+                        } else {
+                            editHarvestSchema.add(newField)
+                        }
+                        newFieldName = ""
+                        showAddFieldDialog = false
+                    }
+                }) {
+                    Text("Add", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddFieldDialog = false }) {
+                    Text("Cancel", fontWeight = FontWeight.Normal)
+                }
+            }
         )
     }
 }
 
-fun exportDataToCsv(context: Context, db: com.google.firebase.firestore.FirebaseFirestore) {
-    Toast.makeText(context, "Compiling CSV Database...", Toast.LENGTH_SHORT).show()
-    db.collection("brews").orderBy("timestamp", Query.Direction.ASCENDING).get()
-        .addOnSuccessListener { snapshot ->
-            if (snapshot.isEmpty) { Toast.makeText(context, "No data to export.", Toast.LENGTH_SHORT).show(); return@addOnSuccessListener }
-            try {
-                val docs = snapshot.documents
-                val dynamicKeys = mutableSetOf<String>()
-                val ignoreKeys = setOf("batchName", "timestamp", "status")
-                docs.forEach { doc -> doc.data?.keys?.filter { it !in ignoreKeys }?.let { dynamicKeys.addAll(it) } }
-                val sortedKeys = dynamicKeys.sorted()
-                val csv = StringBuilder().append("Date,Batch Name,Status")
-                sortedKeys.forEach { csv.append(",\"$it\"") }
-                csv.append("\n")
+fun checkForUpdates(context: Context, coroutineScope: CoroutineScope) {
+    Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
 
-                docs.forEach { doc ->
-                    val data = doc.data ?: emptyMap()
-                    val name = (doc.getString("batchName") ?: "Unknown").replace("\"", "\"\"")
-                    val ts = doc.getLong("timestamp") ?: 0L
-                    val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
-                    val status = doc.getString("status") ?: "unknown"
-                    csv.append("\"$dateStr\",\"$name\",\"$status\"")
-                    sortedKeys.forEach { key ->
-                        val value = data[key]?.toString() ?: ""
-                        csv.append(",\"${value.replace("\"", "\"\"")}\"")
+    coroutineScope.launch {
+        try {
+            val response = withContext(Dispatchers.IO) {
+                URL("https://api.github.com/repos/exolon/ww-yoghurt/releases/latest").readText()
+            }
+            val json = JSONObject(response)
+            val latestTag = json.getString("tag_name").replace("v", "")
+
+            if (latestTag > APP_VERSION) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Downloading v$latestTag...", Toast.LENGTH_LONG).show()
+                    val apkName = "app-release.apk"
+                    val githubReleaseUrl = "https://github.com/exolon/ww-yoghurt/releases/latest/download/$apkName"
+                    val request = DownloadManager.Request(Uri.parse(githubReleaseUrl))
+                        .setTitle("WW Yoghurt Update")
+                        .setDescription("Downloading v$latestTag...")
+                        .setMimeType("application/vnd.android.package-archive")
+                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, apkName)
+
+                    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                    val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), apkName)
+                    if (file.exists()) file.delete()
+
+                    val downloadId = downloadManager.enqueue(request)
+
+                    val onComplete = object : BroadcastReceiver() {
+                        override fun onReceive(ctxt: Context, intent: Intent) {
+                            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                            if (id == downloadId) {
+                                val downloadedFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), apkName)
+                                val uri = FileProvider.getUriForFile(ctxt, "${ctxt.packageName}.provider", downloadedFile)
+                                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, "application/vnd.android.package-archive")
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                }
+                                ctxt.startActivity(installIntent)
+                                ctxt.unregisterReceiver(this)
+                            }
+                        }
                     }
-                    csv.append("\n")
+                    val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        context.registerReceiver(onComplete, filter, Context.RECEIVER_EXPORTED)
+                    } else {
+                        context.registerReceiver(onComplete, filter)
+                    }
                 }
-
-                val exportFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "WW_Yoghurt_Data.csv")
-                java.io.FileWriter(exportFile).use { it.write(csv.toString()) }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", exportFile)
-                val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "text/csv"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                context.startActivity(Intent.createChooser(shareIntent, "Export to Google Drive"))
-            } catch (e: Exception) { Toast.makeText(context, "Export Error: ${e.message}", Toast.LENGTH_LONG).show() }
-        }.addOnFailureListener { Toast.makeText(context, "Failed to fetch Database.", Toast.LENGTH_SHORT).show() }
-}
-
-fun checkForUpdates(context: Context) {
-    val apkName = "app-release.apk"
-    val githubReleaseUrl = "https://github.com/exolon/ww-yoghurt/releases/latest/download/$apkName"
-    val request = DownloadManager.Request(Uri.parse(githubReleaseUrl)).setTitle("WW Yoghurt Update").setDescription("Downloading...").setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED).setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, apkName)
-    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), apkName)
-    if (file.exists()) file.delete()
-    val downloadId = downloadManager.enqueue(request)
-    Toast.makeText(context, "Download started...", Toast.LENGTH_SHORT).show()
-
-    val onComplete = object : BroadcastReceiver() {
-        override fun onReceive(ctxt: Context, intent: Intent) {
-            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-            if (id == downloadId) {
-                val downloadedFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), apkName)
-                val uri = FileProvider.getUriForFile(ctxt, "${ctxt.packageName}.provider", downloadedFile)
-                val installIntent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "application/vnd.android.package-archive"); flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION }
-                ctxt.startActivity(installIntent)
-                ctxt.unregisterReceiver(this)
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "You are already on the latest version (v$APP_VERSION).", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Failed to check for updates: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
-    val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) context.registerReceiver(onComplete, filter, Context.RECEIVER_EXPORTED) else context.registerReceiver(onComplete, filter)
 }
