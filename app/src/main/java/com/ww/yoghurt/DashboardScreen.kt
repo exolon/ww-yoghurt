@@ -3,6 +3,7 @@ package com.ww.yoghurt
 import android.view.HapticFeedbackConstants
 import android.view.SoundEffectConstants
 import android.widget.Toast
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -278,6 +281,8 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
     val editValues = remember { mutableStateMapOf<String, String>() }
     var sortByTree by remember { mutableStateOf(false) }
 
+    var aiInsight by remember { mutableStateOf("") }
+
     val batchNumbers = remember(batches) {
         batches.mapIndexed { index, batch -> batch.id to (batches.size - index) }.toMap()
     }
@@ -289,6 +294,26 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
         batches.filter { it.id !in locallyHiddenBatches }
     }
 
+    LaunchedEffect(Unit) {
+        db.collection("config").document("ai_insight").addSnapshotListener { snap, _ ->
+            if (snap != null && snap.exists()) {
+                aiInsight = snap.getString("text") ?: ""
+            }
+        }
+    }
+
+    // NEW: Scroll State Engine for the Collapsing Header
+    val listState = rememberLazyListState()
+    val isScrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20 } }
+
+    val logoSize by animateDpAsState(targetValue = if (isScrolled) 56.dp else 144.dp, label = "logoSize")
+    val headerHeight by animateDpAsState(targetValue = if (isScrolled) 72.dp else 176.dp, label = "headerHeight")
+
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val centerOffsetX = (screenWidth - 32.dp) / 2 - logoSize / 2
+    val logoOffsetX by animateDpAsState(targetValue = if (isScrolled) 0.dp else centerOffsetX, label = "logoOffsetX")
+    val logoOffsetY by animateDpAsState(targetValue = if (isScrolled) 8.dp else 16.dp, label = "logoOffsetY")
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
@@ -297,11 +322,21 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
         containerColor = Color.Transparent
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp)) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                    Image(painter = painterResource(id = R.drawable.ww_logo), contentDescription = "WW Yoghurt Logo", modifier = Modifier.size(144.dp).clip(RoundedCornerShape(16.dp)))
-                }
-                FeedbackIconButton(onClick = { exportDataToCsv(context, db) }, modifier = Modifier.align(Alignment.TopEnd)) {
+
+            // NEW: Animated Collapsing Header
+            Box(modifier = Modifier.fillMaxWidth().height(headerHeight), contentAlignment = Alignment.TopStart) {
+                Image(
+                    painter = painterResource(id = R.drawable.ww_logo),
+                    contentDescription = "WW Yoghurt Logo",
+                    modifier = Modifier
+                        .offset(x = logoOffsetX, y = logoOffsetY)
+                        .size(logoSize)
+                        .clip(RoundedCornerShape(if (isScrolled) 8.dp else 16.dp))
+                )
+                FeedbackIconButton(
+                    onClick = { exportDataToCsv(context, db) },
+                    modifier = Modifier.align(Alignment.TopEnd).offset(y = logoOffsetY)
+                ) {
                     Icon(DownloadCsvIcon, contentDescription = "Export", tint = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -309,7 +344,20 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
             if (isLoading) { CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
             } else if (batches.isEmpty()) { Text("No batches found.", modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    if (aiInsight.isNotBlank()) {
+                        item {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(GeminiIcon, contentDescription = "AI Insight", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Copilot Insight:\n$aiInsight", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Spacer(modifier = Modifier.height(24.dp))
                         MultiTrendChart(batches)
@@ -482,9 +530,27 @@ fun DashboardScreen(batches: List<YogurtBatch>, isLoading: Boolean, brewSchema: 
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (isEditing) "Edit Batch" else batch.batchName, fontWeight = FontWeight.Bold)
-                    if (!isEditing && batch.rawData["woodyApproved"] == true) {
+
+                    if (!isEditing && batch.status == "completed") {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Icon(Icons.Default.Favorite, contentDescription = "Woody Approved", tint = Color(0xFFF59E0B))
+                        val isApproved = batch.rawData["woodyApproved"] == true
+                        IconToggleButton(
+                            checked = isApproved,
+                            onCheckedChange = { checked ->
+                                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                view.playSoundEffect(SoundEffectConstants.CLICK)
+                                db.collection("brews").document(batch.id).set(mapOf("woodyApproved" to checked), SetOptions.merge())
+
+                                val updatedData = batch.rawData.toMutableMap().apply { put("woodyApproved", checked) }
+                                selectedBatchForDetails = batch.copy(rawData = updatedData)
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = "Woody Approved",
+                                tint = if (isApproved) Color(0xFFF59E0B) else Color.Gray.copy(alpha = 0.3f)
+                            )
+                        }
                     }
                 }
             },

@@ -3,6 +3,8 @@ package com.ww.yoghurt
 import android.Manifest
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -80,7 +82,8 @@ fun YogurtBrewScreen(
     forkedBatchName: String,
     forkedFromId: String?,
     forkedValues: Map<String, String>,
-    onClearFork: () -> Unit
+    onClearFork: () -> Unit,
+    onNavigateToDashboard: () -> Unit
 ) {
     var batchName by remember { mutableStateOf("") }
     val dynamicTextValues = remember { mutableStateMapOf<String, String>() }
@@ -96,6 +99,14 @@ fun YogurtBrewScreen(
         if (!isGranted) {
             enableNotification = false
             Toast.makeText(context, "Notifications disabled in settings.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        LaunchedEffect(Unit) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 
@@ -187,25 +198,14 @@ fun YogurtBrewScreen(
 
                                 if (enableNotification && hoursToWait > 0f) {
                                     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                                    val intent = Intent(context, YogurtAlarmReceiver::class.java).apply {
-                                        putExtra("BATCH_NAME", batchName)
-                                    }
-                                    val pendingIntent = PendingIntent.getBroadcast(
-                                        context,
-                                        batchName.hashCode(),
-                                        intent,
-                                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                                    )
-
+                                    val intent = Intent(context, YogurtAlarmReceiver::class.java).apply { putExtra("BATCH_NAME", batchName) }
+                                    val pendingIntent = PendingIntent.getBroadcast(context, batchName.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                                     val timeInMillis = System.currentTimeMillis() + (hoursToWait * 3600000L).toLong()
 
                                     try {
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                            if (alarmManager.canScheduleExactAlarms()) {
-                                                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
-                                            } else {
-                                                alarmManager.set(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
-                                            }
+                                            if (alarmManager.canScheduleExactAlarms()) alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
+                                            else alarmManager.set(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
                                         } else {
                                             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
                                         }
@@ -217,6 +217,7 @@ fun YogurtBrewScreen(
                                 db.collection("brews").add(brewData).addOnSuccessListener {
                                     Toast.makeText(context, "Brew saved!", Toast.LENGTH_SHORT).show()
                                     batchName = ""; dynamicTextValues.clear(); onClearFork(); isSaving = false
+                                    onNavigateToDashboard()
                                 }.addOnFailureListener { e -> Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show(); isSaving = false }
                             }
                         } else { Toast.makeText(context, "Batch Name is required.", Toast.LENGTH_SHORT).show() }
@@ -237,7 +238,6 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
     var dropdownExpanded by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
-    var isWoodyApproved by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
@@ -293,30 +293,12 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                     }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Woody's Choice ❤️", fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B))
-                    Switch(
-                        checked = isWoodyApproved,
-                        onCheckedChange = {
-                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                            isWoodyApproved = it
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFFF59E0B), checkedTrackColor = Color(0xFFF59E0B).copy(alpha = 0.5f))
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(24.dp))
                 FeedbackButton(
                     onClick = {
                         selectedBrew?.let { brew ->
                             isSaving = true
-                            val data = mutableMapOf<String, Any>("status" to "completed", "woodyApproved" to isWoodyApproved)
+                            val data = mutableMapOf<String, Any>("status" to "completed")
                             schema.forEach { field ->
                                 if (field.type == "Slider") data[field.name] = (dynamicSliderValues[field.name] ?: 4f).toInt()
                                 else if (field.type == "Number") data[field.name] = (dynamicTextValues[field.name] ?: "").toFloatOrNull() ?: 0f
@@ -343,7 +325,7 @@ fun HarvestScreen(schema: List<CustomField>, historicalData: Map<String, Set<Str
                                     }
                                 }
 
-                                dynamicSliderValues.clear(); dynamicTextValues.clear(); isWoodyApproved = false
+                                dynamicSliderValues.clear(); dynamicTextValues.clear();
                                 pendingBrews = pendingBrews.filter { it.id != brew.id }
                                 selectedBrew = pendingBrews.firstOrNull(); isSaving = false
                             }.addOnFailureListener { isSaving = false }
@@ -411,6 +393,19 @@ fun AnalysisScreen(batches: List<YogurtBatch>) {
                             if (isExpanded) {
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                                 Text(chat.response, fontWeight = FontWeight.Normal, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // NEW: Copy to Clipboard Button
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    FeedbackIconButton(onClick = {
+                                        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("AI Chat", "Prompt: ${chat.prompt}\n\nResponse: ${chat.response}")
+                                        clipboardManager.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    }) {
+                                        Icon(Icons.Default.Share, contentDescription = "Copy text", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    }
+                                }
                             }
                         }
                     }
@@ -533,12 +528,27 @@ fun SystemSettingsScreen(currentBrewSchema: List<CustomField>, currentHarvestSch
                 ) { if (isSaving) CircularProgressIndicator(modifier = Modifier.size(24.dp)) else Text("Save & Apply Schema", fontWeight = FontWeight.Bold) }
             }
         }
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = { showManualDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("WW Yoghurt User Manual", fontWeight = FontWeight.Bold) }
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { showChangelogDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("View Full Changelog", fontWeight = FontWeight.Bold) }
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { checkForUpdates(context, coroutineScope) }, modifier = Modifier.fillMaxWidth()) { Text("Download Latest Update", fontWeight = FontWeight.Bold) }
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // NEW: Clean Settings Menu Row replacing massive buttons
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { showManualDialog = true }.padding(8.dp)) {
+                Icon(Icons.Default.Info, contentDescription = "Manual", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Manual", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { showChangelogDialog = true }.padding(8.dp)) {
+                Icon(Icons.Default.List, contentDescription = "Changelog", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(28.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Changelog", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { checkForUpdates(context, coroutineScope) }.padding(8.dp)) {
+                Icon(Icons.Default.Refresh, contentDescription = "Update", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Update", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
         Text("Version v$APP_VERSION", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Normal, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

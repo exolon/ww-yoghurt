@@ -30,13 +30,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-const val APP_VERSION = "1.4.1"
+const val APP_VERSION = "1.5.0"
 
 val appChangelog = mapOf(
-    "v1.4.1" to listOf("Restored missing YogurtAlarmReceiver.", "Uncommented Sensory Radar Chart in Dashboard."),
-    "v1.4.0" to listOf("Fixed Tree line visual breaks.", "Added real-time Countdown Timer.", "Added Swipe-to-Delete.", "Evenly spaced top navigation tabs.", "Replaced UI pills with vector icons.", "Added User Manual to System Settings.", "Sticky footer added to Dashboard."),
-    "v1.3.0" to listOf("Added Push Notifications for fermentation tracking.", "Added toggle to silence alarms per-batch.", "Version Code bumped to 5."),
-    "v1.2.3" to listOf("Fixed Firestore restricted character save error using SetOptions.merge().", "Added Correlation Scatter Plot to Dashboard.", "Version Code bumped.")
+    "v1.5.0" to listOf("Auto-navigate to Dashboard after saving a Brew.", "Updater string logic improvements."),
+    "v1.4.1" to listOf("Moved Woody's Choice toggle to Dashboard dialog.", "Fixed Android 13+ Notification Permissions."),
+    "v1.4.0" to listOf("Added Proactive AI Copilot Insight.", "Added Lineage Tree continuous rendering.", "Added Swipe-to-Delete with Undo."),
+    "v1.3.0" to listOf("Added Push Notifications for fermentation tracking.", "Version Code bumped to 5.")
 )
 
 class YogurtAlarmReceiver : BroadcastReceiver() {
@@ -122,7 +122,7 @@ fun exportDataToCsv(context: Context, db: FirebaseFirestore) {
             try {
                 val docs = snapshot.documents
                 val dynamicKeys = mutableSetOf<String>()
-                val ignoreKeys = setOf("batchName", "timestamp", "status", "forkedFrom")
+                val ignoreKeys = setOf("batchName", "timestamp", "status", "forkedFrom", "woodyApproved")
                 docs.forEach { doc -> doc.data?.keys?.filter { it !in ignoreKeys }?.let { dynamicKeys.addAll(it) } }
                 val sortedKeys = dynamicKeys.sorted()
                 val csv = StringBuilder().append("Date,Batch Name,Status")

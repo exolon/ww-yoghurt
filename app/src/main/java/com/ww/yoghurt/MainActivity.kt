@@ -161,7 +161,6 @@ fun MainScreen() {
     if (!schemaLoaded) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return }
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        // CHANGED: TabRow instead of ScrollableTabRow for evenly spaced icons
         TabRow(selectedTabIndex = pagerState.currentPage, containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.primary) {
             tabs.forEachIndexed { index, tabItem ->
                 Tab(
@@ -188,9 +187,19 @@ fun MainScreen() {
                             coroutineScope.launch { pagerState.animateScrollToPage(1) }
                         }
                     )
-                    1 -> YogurtBrewScreen(brewSchema, historicalData, forkedBatchName, forkedFromId, forkedValues) {
-                        forkedBatchName = ""; forkedFromId = null; forkedValues.clear()
-                    }
+                    1 -> YogurtBrewScreen(
+                        schema = brewSchema,
+                        historicalData = historicalData,
+                        forkedBatchName = forkedBatchName,
+                        forkedFromId = forkedFromId,
+                        forkedValues = forkedValues,
+                        onClearFork = {
+                            forkedBatchName = ""; forkedFromId = null; forkedValues.clear()
+                        },
+                        onNavigateToDashboard = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                        }
+                    )
                     2 -> HarvestScreen(harvestSchema, historicalData)
                     3 -> AnalysisScreen(masterBatches)
                     4 -> SystemSettingsScreen(brewSchema, harvestSchema, coroutineScope)
